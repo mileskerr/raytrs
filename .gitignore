@@ -1,3 +1,4 @@
 /target
+.gitignore
 test.png
 out.png
