@@ -6,6 +6,7 @@ use std::ops::Mul;
 use std::ops::Add;
 use std::ops::Sub;
 use std::ops::Neg;
+use std::ops::Div;
 use std::fmt;
 //---------------------
 
@@ -123,17 +124,20 @@ impl Scene
                 let hit = &self.objects[object_index].raycast(rays[i]);
                 if hit.is_some()
                 {
-                    pixels[i] = Some(hit.unwrap().normal.to_color());
-
-
-
+                    //pixels[i] = Some(hit.unwrap().normal.to_color());
+                    pixels[i] = Some(Color::new(0,0,0,1));
                     for light in &self.lights
                     {
                         match light
                         {
                             Light::Point(point_light) =>
                             {
-
+                                //diffuse shading
+                                let light_vector = point_light.origin - hit.unwrap().point;
+                                let light_dir = light_vector / light_vector.magn();
+                                let lightness = light_dir.dot(hit.unwrap().normal);
+                                pixels[i] = Some(hit.unwrap().color * lightness);
+                                //shadows
                                 for object_index_1 in 0..num_objects
                                 {
                                     if object_index_1 != object_index
@@ -143,7 +147,11 @@ impl Scene
 
                                         if hit1.is_some()
                                         {
-                                            pixels[i] = Some(hit.unwrap().normal.to_color() * 0.5);
+                                            pixels[i] = Some(Color::new(0,0,0,255));
+
+                                            
+
+
                                             //pixels[i] = Some(hit1.unwrap().color * 0.5);
                                             //pixels[i] = Some(Color::new(10,200,10,255));
                                             //println!("{}",i);
@@ -160,7 +168,6 @@ impl Scene
         }
         return pixels;
     }
-
 }
 //---------------------
 
@@ -246,22 +253,13 @@ impl SceneObject for Sphere
     fn raycast(&self, ray: Ray) -> Option<RaycastHit>
     {
         let delta = ray.end - ray.start;
-        
-        let a = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-        let b = (2.0 * delta.x * ( ray.start.x - self.center.x )) +
-                (2.0 * delta.y * ( ray.start.y - self.center.y )) +
-                (2.0 * delta.z * ( ray.start.z - self.center.z )) ;
-        let c = self.center.x * self.center.x +
-                self.center.y * self.center.y +
-                self.center.z * self.center.z +
-                ray.start.x * ray.start.x +
-                ray.start.y * ray.start.y +
-                ray.start.z * ray.start.z +
-                -2.0 * ( 
-                self.center.x * ray.start.x + 
-                self.center.y * ray.start.y +
-                self.center.z * ray.start.z
-                ) - (self.radius * self.radius) ;
+       
+        let a = delta.dot(delta);
+        let b = (delta * 2.0).dot(ray.start - self.center);
+        let c = self.center.dot(self.center) + 
+                ray.start.dot(ray.start) - 
+                2.0 * self.center.dot(ray.start) - 
+                self.radius * self.radius;
 
         let dsc = b * b - (4.0 * a * c);
 
@@ -362,6 +360,10 @@ impl Vec3
     {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
+    fn magn(&self) -> f64
+    {
+        self.dot(*self).sqrt()
+    }
     fn to_color(self) -> Color
     {
         let r: u8 = (self.x * 128.0 + 128.0) as u8;
@@ -386,10 +388,22 @@ impl fmt::Debug for Vec3
 impl Mul<f64> for Vec3
 {
     type Output = Vec3;
-    fn mul(self, other: f64) -> Vec3 {
+    fn mul(self, other: f64) -> Vec3
+    {
         let x = self.x * other;
         let y = self.y * other;
         let z = self.z * other;
+        Vec3::new(x,y,z)
+    }
+}
+impl Div<f64> for Vec3
+{
+    type Output = Vec3;
+    fn div(self, other: f64) -> Vec3
+    {
+        let x = self.x / other;
+        let y = self.y / other;
+        let z = self.z / other;
         Vec3::new(x,y,z)
     }
 }
@@ -442,6 +456,18 @@ impl Color
 {
     fn new(r: u8, g: u8, b: u8, a: u8) -> Color
     { Color{ r: r, g: g, b: b, a: a } }
+}
+impl Add for Color
+{
+    type Output = Color;
+    fn add(self, other: Color) -> Color
+    {
+        let r = self.r as u16 + other.r as u16;
+        let g = self.g as u16 + other.g as u16;
+        let b = self.b as u16 + other.b as u16;
+        let a = self.a as u16 + other.a as u16;
+        Color::new(r as u8, g as u8, b as u8, a as u8)
+    }
 }
 impl Mul<f64> for Color
 {
