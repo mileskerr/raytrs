@@ -4,14 +4,15 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::ops::Mul;
 use std::ops::Add;
+use std::ops::AddAssign;
 use std::ops::Sub;
 use std::ops::Neg;
 use std::ops::Div;
 use std::fmt;
 //---------------------
 
-const WIDTH:  usize = 512;
-const HEIGHT: usize = 512;
+const WIDTH:  usize = 1024;
+const HEIGHT: usize = 1024;
 
 //---------------------
 fn main() {
@@ -31,8 +32,8 @@ fn main() {
     );
     let sphere3 = Sphere::new
     (
-        Vec3::new(0.0, -14.0, 10.0),
-        12.0,
+        Vec3::new(0.5, 1.0, 10.0),
+        1.0,
         Color::new(255, 255, 0, 255),
     );
     let floor = Floor::new
@@ -42,11 +43,16 @@ fn main() {
     );
     let light1 = PointLight::new
     (
-        Vec3::new(-1.0, 2.0, 5.0),
+        Vec3::new(-3.0, 2.0, 5.0),
         1.0,
     );
-    let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(floor),Box::new(sphere2),Box::new(sphere1)];
-    let lights: Vec<Light> = vec![Light::Point(light1)];
+    let light2 = PointLight::new
+    (
+        Vec3::new(4.0, 2.0, 2.0),
+        1.0,
+    );
+    let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(floor),Box::new(sphere3),Box::new(sphere2),Box::new(sphere1)];
+    let lights: Vec<Light> = vec![Light::Point(light1),Light::Point(light2)];
     let camera = Camera::new
     (
         //origin
@@ -136,7 +142,8 @@ impl Scene
                                 let light_vector = point_light.origin - hit.unwrap().point;
                                 let light_dir = light_vector / light_vector.magn();
                                 let lightness = light_dir.dot(hit.unwrap().normal);
-                                pixels[i] = Some(hit.unwrap().color * lightness);
+                                let mut pixel_buffer = Some((hit.unwrap().color * lightness) + 
+                                            pixels[i].unwrap());
                                 //shadows
                                 for object_index_1 in 0..num_objects
                                 {
@@ -147,17 +154,11 @@ impl Scene
 
                                         if hit1.is_some()
                                         {
-                                            pixels[i] = Some(Color::new(0,0,0,255));
-
-                                            
-
-
-                                            //pixels[i] = Some(hit1.unwrap().color * 0.5);
-                                            //pixels[i] = Some(Color::new(10,200,10,255));
-                                            //println!("{}",i);
+                                            pixel_buffer = pixels[i];
                                         }
                                     }
                                 }
+                                pixels[i] = pixel_buffer;
 
                             }
                             _ => {}
@@ -462,10 +463,18 @@ impl Add for Color
     type Output = Color;
     fn add(self, other: Color) -> Color
     {
-        let r = self.r as u16 + other.r as u16;
-        let g = self.g as u16 + other.g as u16;
-        let b = self.b as u16 + other.b as u16;
-        let a = self.a as u16 + other.a as u16;
+        let mut r = self.r as u16 + other.r as u16;
+        let mut g = self.g as u16 + other.g as u16;
+        let mut b = self.b as u16 + other.b as u16;
+        let mut a = self.a as u16 + other.a as u16;
+        if r > 255
+        { r = 255; }
+        if g > 255
+        { g = 255; }
+        if b > 255
+        { b = 255; }
+        if a > 255
+        { a = 255; }
         Color::new(r as u8, g as u8, b as u8, a as u8)
     }
 }
