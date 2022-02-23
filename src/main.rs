@@ -22,24 +22,24 @@ fn main() {
     (
         Vec3::new(2.0, 0.0, 7.0),
         1.5,
-        Color::new(255, 0, 0, 255),
+        Material::new(Color::new(255, 0, 0, 255),true),
     );
     let sphere2 = Sphere::new
     (
         Vec3::new(-1.5, -0.75, 6.0),
         1.5,
-        Color::new(0, 255, 255, 255),
+        Material::new(Color::new(0, 255, 255, 255),false),
     );
     let sphere3 = Sphere::new
     (
         Vec3::new(0.5, 1.0, 10.0),
         1.0,
-        Color::new(255, 255, 0, 255),
+        Material::new(Color::new(255, 255, 0, 255),false),
     );
     let floor = Floor::new
     (
         -2.0,
-        Color::new(100, 100, 100, 255),
+        Material::new(Color::new(100, 100, 100, 255),false),
     );
     let light1 = PointLight::new
     (
@@ -121,53 +121,71 @@ impl Scene
         for _ in 0..num_rays
         { pixels.push(None); }
         
-        let num_objects = self.objects.len();
-
-        for object_index in 0..num_objects
+        for object_index in 0..self.objects.len()
         {
             for i in 0..num_rays
             {
                 let hit = &self.objects[object_index].raycast(rays[i]);
                 if hit.is_some()
                 {
-                    //pixels[i] = Some(hit.unwrap().normal.to_color());
-                    pixels[i] = Some(Color::new(0,0,0,1));
-                    for light in &self.lights
+                    if hit.unwrap().material.reflective
                     {
-                        match light
-                        {
-                            Light::Point(point_light) =>
-                            {
-                                //diffuse shading
-                                let light_vector = point_light.origin - hit.unwrap().point;
-                                let light_dir = light_vector / light_vector.magn();
-                                let lightness = light_dir.dot(hit.unwrap().normal);
-                                let mut pixel_buffer = Some((hit.unwrap().color * lightness) + 
-                                            pixels[i].unwrap());
-                                //shadows
-                                for object_index_1 in 0..num_objects
-                                {
-                                    if object_index_1 != object_index
-                                    {
-                                        let hit1 = &self.objects[object_index_1].raycast
-                                            (Ray::new( hit.unwrap().point, point_light.origin ));
-
-                                        if hit1.is_some()
-                                        {
-                                            pixel_buffer = pixels[i];
-                                        }
-                                    }
-                                }
-                                pixels[i] = pixel_buffer;
-
-                            }
-                            _ => {}
-                        }
+                        pixels[i] = Some(self.shade_reflective( rays[i],hit.unwrap()));
+                    }
+                    else
+                    {
+                        pixels[i] = Some(self.shade_diffuse(hit.unwrap()));
                     }
                 }
             }
         }
         return pixels;
+    }
+    fn shade_diffuse(&self, hit: RaycastHit) -> Color
+    {
+        let mut pixel = Color::new(0,0,0,1);
+        for light in &self.lights
+        {
+            match light
+            {
+                Light::Point(point_light) =>
+                {
+                    //diffuse shading
+                    let light_vector = point_light.origin - hit.point;
+                    let light_dir = light_vector / light_vector.magn();
+                    let lightness = light_dir.dot(hit.normal);
+                    let mut pixel_buffer = (hit.material.color * lightness) + pixel;
+                    //shadows
+                    for object_index_1 in 0..self.objects.len()
+                    {
+                        let ray = Ray::new( hit.point, point_light.origin);
+                        let hit1 = &self.objects[object_index_1].raycast( ray );
+                        if hit1.is_some()
+                        {
+                            pixel_buffer = pixel;
+                        }
+                    }
+                    pixel = pixel_buffer;
+                }
+                _ => {}
+            }
+        }
+        return pixel;
+    }
+    fn shade_reflective(&self, ray: Ray, hit: RaycastHit) -> Color
+    {
+        let mut pixel = Color::new(0,0,0,1);
+
+        for object_index_1 in 0..self.objects.len()
+        {
+            let new_ray = Ray::new(hit.point, (ray.start - ray.end).reflect(hit.normal) + hit.point);
+            let hit1 = &self.objects[object_index_1].raycast( new_ray );
+            if hit1.is_some()
+            {
+                pixel = self.shade_diffuse( hit1.unwrap() )
+            }
+        }
+        return pixel;
     }
 }
 //---------------------
@@ -242,12 +260,12 @@ struct Sphere
 {
     center: Vec3,
     radius: f64,
-    color: Color,
+    material: Material,
 }
 impl Sphere
 {
-    fn new(center: Vec3, radius: f64, color: Color) -> Sphere
-    { Sphere { center: center, radius: radius, color: color } }
+    fn new(center: Vec3, radius: f64, material: Material) -> Sphere
+    { Sphere { center: center, radius: radius, material: material } }
 }
 impl SceneObject for Sphere
 {
@@ -277,11 +295,24 @@ impl SceneObject for Sphere
                 {
                     point: point,
                     normal: normal,
-                    color: self.color,
+                    material: self.material,
                 });
             }
         }
         return hit;
+    }
+}
+#[derive(Clone,Copy)]
+struct Material
+{
+    color: Color,
+    reflective: bool,
+}
+impl Material
+{
+    fn new(color: Color, reflective: bool) -> Material
+    {
+        Material { color: color, reflective: reflective }
     }
 }
 //---------------------
@@ -290,18 +321,18 @@ struct RaycastHit
 {
     point: Vec3,
     normal: Vec3,
-    color: Color,
+    material: Material,
 }
 //---------------------
 struct Floor
 {
     y: f64,
-    color: Color
+    material: Material
 }
 impl Floor
 {
-    fn new(y: f64, color: Color) -> Floor
-    { Floor { y: y, color: color} }
+    fn new(y: f64, material: Material) -> Floor
+    { Floor { y: y, material: material } }
 }
 impl SceneObject for Floor
 {
@@ -322,7 +353,7 @@ impl SceneObject for Floor
             {
                 normal: Vec3::new(0.0,1.0,0.0),
                 point: point,
-                color: self.color,
+                material: self.material,
             });
         }
     }
@@ -361,9 +392,17 @@ impl Vec3
     {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
+    fn reflect(self, other: Vec3) -> Vec3
+    {
+        (other.unit() * (other.dot(self))) * 2.0 - self
+    }
     fn magn(&self) -> f64
     {
         self.dot(*self).sqrt()
+    }
+    fn unit(self) -> Vec3
+    {
+        self/self.magn()
     }
     fn to_color(self) -> Color
     {
