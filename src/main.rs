@@ -9,14 +9,13 @@ use std::ops::Sub;
 use std::ops::Neg;
 use std::ops::Div;
 use std::fmt;
-//---------------------
 
-const WIDTH:  usize = 1024;
-const HEIGHT: usize = 1024;
+const WIDTH:  usize = 512;
+const HEIGHT: usize = 512;
 
-//---------------------
 fn main() {
-    //------------------------------------------------------
+
+    //SCENE//
     
     let sphere1 = Sphere::new
     (
@@ -32,9 +31,15 @@ fn main() {
     );
     let sphere3 = Sphere::new
     (
-        Vec3::new(0.5, 1.0, 10.0),
+        Vec3::new(0.5, 0.75, 10.0),
         1.0,
         Material::new(Color::new(255, 255, 0, 255),false),
+    );
+    let sphere4 = Sphere::new
+    (
+        Vec3::new(1.0, -1.25, 5.0),
+        0.75,
+        Material::new(Color::new(0, 0, 255, 255),false),
     );
     let floor = Floor::new
     (
@@ -51,8 +56,13 @@ fn main() {
         Vec3::new(4.0, 2.0, 2.0),
         1.0,
     );
-    let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(floor),Box::new(sphere3),Box::new(sphere2),Box::new(sphere1)];
-    let lights: Vec<Light> = vec![Light::Point(light1),Light::Point(light2)];
+    let world = World::new
+    (
+        Color::new(0, 0, 20, 255),
+        1.0,
+    );
+    let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(floor),Box::new(sphere3),Box::new(sphere2),Box::new(sphere1),Box::new(sphere4)];
+    let lights: Vec<Light> = vec![Light::Point(light2),Light::Point(light1)];
     let camera = Camera::new
     (
         //origin
@@ -63,12 +73,14 @@ fn main() {
         Vec3::new(-0.5,-0.5, 1.0),
         Vec3::new(0.5, -0.5, 1.0),
     );
-    let scene = Scene::new(objects,lights,camera);
+    let scene = Scene::new(objects,lights,camera,world);
     
+   
+
+    //OUTPUT
+
     let pixels = scene.render();
 
-    //------------------------------------------------------
-    
     let path = env::args()
         .nth(1)
         .expect("Expected a filename to output to.");
@@ -85,41 +97,37 @@ fn main() {
     for i in 0..WIDTH*HEIGHT
     {
         let j = i * 3;
-        if pixels[i].is_some()
-        {
-            data[j  ] = pixels[i].unwrap().r;
-            data[j+1] = pixels[i].unwrap().g;
-            data[j+2] = pixels[i].unwrap().b;
-        }
+        data[j  ] = pixels[i].r;
+        data[j+1] = pixels[i].g;
+        data[j+2] = pixels[i].b;
     }
 
-    writer.write_image_data(&data).unwrap(); // Save
+    writer.write_image_data(&data).unwrap();
 }
-//---------------------
 
 
-//---------------------
 struct Scene
 {
     objects: Vec<Box<dyn SceneObject>>,
     lights: Vec<Light>,
     camera: Camera,
+    world: World,
 }
 impl Scene
 {
-    fn new(objects: Vec<Box<dyn SceneObject>>, lights: Vec<Light>, camera: Camera) -> Scene
+    fn new(objects: Vec<Box<dyn SceneObject>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
     {
-        Scene { objects: objects, lights: lights, camera: camera }
+        Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
-    fn render(&self) -> Vec<Option<Color>>
+    fn render(&self) -> Vec<Color>
     {
-        let mut pixels: Vec<Option<Color>> = Vec::new();
+        let mut pixels: Vec<Color> = Vec::new();
         
         let rays = &self.camera.rays();
 
         let num_rays = rays.len();
         for _ in 0..num_rays
-        { pixels.push(None); }
+        { pixels.push(self.world.color); }
         
         for object_index in 0..self.objects.len()
         {
@@ -130,11 +138,11 @@ impl Scene
                 {
                     if hit.unwrap().material.reflective
                     {
-                        pixels[i] = Some(self.shade_reflective( rays[i],hit.unwrap()));
+                        pixels[i] = self.shade_reflective( rays[i],hit.unwrap());
                     }
                     else
                     {
-                        pixels[i] = Some(self.shade_diffuse(hit.unwrap()));
+                        pixels[i] = self.shade_diffuse(hit.unwrap());
                     }
                 }
             }
@@ -143,7 +151,8 @@ impl Scene
     }
     fn shade_diffuse(&self, hit: RaycastHit) -> Color
     {
-        let mut pixel = Color::new(0,0,0,1);
+        let mut pixel = self.world.color * self.world.strength;
+        let mut lightness = 0.0;
         for light in &self.lights
         {
             match light
@@ -153,8 +162,10 @@ impl Scene
                     //diffuse shading
                     let light_vector = point_light.origin - hit.point;
                     let light_dir = light_vector / light_vector.magn();
-                    let lightness = light_dir.dot(hit.normal);
-                    let mut pixel_buffer = (hit.material.color * lightness) + pixel;
+                    let mut l0 = light_dir.dot(hit.normal);
+                    if l0 < 0.0 //clamp because we dont want negative values messing things up
+                    { l0 = 0.0 }
+                    let mut new_light = l0 * l0;
                     //shadows
                     for object_index_1 in 0..self.objects.len()
                     {
@@ -162,19 +173,20 @@ impl Scene
                         let hit1 = &self.objects[object_index_1].raycast( ray );
                         if hit1.is_some()
                         {
-                            pixel_buffer = pixel;
+                            new_light = 0.0;
                         }
                     }
-                    pixel = pixel_buffer;
+                    lightness = lightness + new_light;
                 }
                 _ => {}
             }
         }
+        pixel = hit.material.color * lightness;
         return pixel;
     }
     fn shade_reflective(&self, ray: Ray, hit: RaycastHit) -> Color
     {
-        let mut pixel = Color::new(0,0,0,1);
+        let mut pixel = self.world.color;
 
         for object_index_1 in 0..self.objects.len()
         {
@@ -188,10 +200,8 @@ impl Scene
         return pixel;
     }
 }
-//---------------------
 
 
-//---------------------
 struct Camera
 {
     origin: Vec3,
@@ -230,7 +240,19 @@ impl Camera
         return output;
     }
 }
-//---------------------
+
+struct World
+{
+    color: Color,
+    strength: f64,
+}
+impl World
+{
+    fn new(color: Color, strength: f64) -> World
+    {
+        World { color: color, strength: strength }
+    }
+}
 
 enum Light
 {
@@ -255,7 +277,6 @@ struct SunLight
     strength: f64,
 }
 
-//---------------------
 struct Sphere
 {
     center: Vec3,
@@ -315,7 +336,6 @@ impl Material
         Material { color: color, reflective: reflective }
     }
 }
-//---------------------
 #[derive(Clone,Copy)]
 struct RaycastHit
 {
@@ -323,7 +343,6 @@ struct RaycastHit
     normal: Vec3,
     material: Material,
 }
-//---------------------
 struct Floor
 {
     y: f64,
@@ -358,10 +377,8 @@ impl SceneObject for Floor
         }
     }
 }
-//---------------------
 
 
-//---------------------
 #[derive(Clone,Copy,Debug)]
 struct Ray
 {
@@ -373,11 +390,8 @@ impl Ray
     fn new(start: Vec3, end: Vec3) -> Ray
     { Ray { start: start, end: end } }
 }
-//---------------------
 
-
-//---------------------
-#[derive(Clone,Copy,PartialEq,PartialOrd)]
+#[derive(Clone,Copy,PartialEq)]
 struct Vec3
 {
     x: f64,
@@ -480,10 +494,8 @@ impl Neg for Vec3
         Vec3::new(x,y,z)
     }
 }
-//---------------------
 
 
-//---------------------
 #[derive(Clone,Copy,Debug)]
 struct Color
 {
@@ -505,15 +517,13 @@ impl Add for Color
         let mut r = self.r as u16 + other.r as u16;
         let mut g = self.g as u16 + other.g as u16;
         let mut b = self.b as u16 + other.b as u16;
-        let mut a = self.a as u16 + other.a as u16;
+        let mut a = self.a;
         if r > 255
         { r = 255; }
         if g > 255
         { g = 255; }
         if b > 255
         { b = 255; }
-        if a > 255
-        { a = 255; }
         Color::new(r as u8, g as u8, b as u8, a as u8)
     }
 }
@@ -521,21 +531,24 @@ impl Mul<f64> for Color
 {
     type Output = Color;
     fn mul(self, other: f64) -> Color {
-        let factor = (other * 255.0) as u16;
 
-        let r = (self.r as u16 * factor) / 255;
-        let g = (self.g as u16 * factor) / 255;
-        let b = (self.b as u16 * factor) / 255;
+        let mut r = (self.r as f64 * other);
+        let mut g = (self.g as f64 * other);
+        let mut b = (self.b as f64 * other);
+        if r > 255.0
+        { r = 255.0; }
+        if g > 255.0
+        { g = 255.0; }
+        if b > 255.0
+        { b = 255.0; }
         Color::new(r as u8, g as u8, b as u8, self.a)
     }
 }
 
 
 
-//---------------------
 trait SceneObject
 {
     fn raycast(&self, ray: Ray) -> Option<RaycastHit>;
 }
-//---------------------
 
