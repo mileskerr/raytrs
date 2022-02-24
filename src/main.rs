@@ -49,7 +49,7 @@ fn main() {
     let light1 = PointLight::new
     (
         Vec3::new(-3.0, 2.0, 5.0),
-        1.0,
+        0.5,
     );
     let light2 = PointLight::new
     (
@@ -162,7 +162,7 @@ impl Scene
                     //diffuse shading
                     let light_vector = point_light.origin - hit.point;
                     let light_dir = light_vector / light_vector.magn();
-                    let mut l0 = light_dir.dot(hit.normal);
+                    let mut l0 = light_dir.dot(hit.normal) * point_light.strength;
                     if l0 < 0.0 //clamp because we dont want negative values messing things up
                     { l0 = 0.0 }
                     let mut new_light = l0 * l0;
@@ -366,7 +366,6 @@ impl SceneObject for Floor
         {
             let scl = (self.y - ray.start.y) / delta.y;
             let point = delta * scl + ray.start;
-            println!("{:?}",point);
 
             return Some(RaycastHit
             {
@@ -532,9 +531,9 @@ impl Mul<f64> for Color
     type Output = Color;
     fn mul(self, other: f64) -> Color {
 
-        let mut r = (self.r as f64 * other);
-        let mut g = (self.g as f64 * other);
-        let mut b = (self.b as f64 * other);
+        let mut r = self.r as f64 * other;
+        let mut g = self.g as f64 * other;
+        let mut b = self.b as f64 * other;
         if r > 255.0
         { r = 255.0; }
         if g > 255.0
