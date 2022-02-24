@@ -1,85 +1,36 @@
 use png;
 use std::env;
-use std::fs;
 use std::fs::File;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 use std::io::BufWriter;
 use std::ops::Mul;
 use std::ops::Add;
-use std::ops::AddAssign;
 use std::ops::Sub;
 use std::ops::Neg;
 use std::ops::Div;
 use std::fmt;
 
+mod scn;
+
 const WIDTH:  usize = 256;
 const HEIGHT: usize = 256;
 
-fn main() {
-
-    //SCENE//
-    
-    let sphere1 = Sphere::new
-    (
-        Vec3::new(2.0, 0.0, 0.0),
-        1.5,
-        Material::new(Color::new(255, 0, 0, 255),false),
-    );
-    let sphere2 = Sphere::new
-    (
-        Vec3::new(-1.5, -0.75, 2.0),
-        1.0,
-        Material::new(Color::new(0, 255, 255, 255),false),
-    );
-    let floor = Floor::new
-    (
-        -2.0,
-        Material::new(Color::new(100, 100, 100, 255),false),
-    );
-    let light1 = PointLight::new
-    (
-        Vec3::new(0.0, 6.0, -2.0),
-        1.0,
-    );
-    let world = World::new
-    (
-        Color::new(0, 0, 120, 255),
-        1.0,
-    );
-    let tri1 = Tri::new
-    (
-        Vec3::new(1.0,-2.0,7.0),
-        Vec3::new(1.0,-2.0,9.0),
-        Vec3::new(0.0, -2.0,9.0),
-        Material::new(Color::new(255, 0, 0, 255),false),
-    );
-    //let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(tri1),Box::new(sphere2)];
-    let objects = read_obj("teapot1.obj", Material::new(Color::new(255,0,0,255),false));
-
-    let lights: Vec<Light> = vec![Light::Point(light1)];
-
-    let camera = Camera::new
-    (
-        //origin
-        Vec3::new(0.0, 1.5, -7.0),
-        //corners
-        Vec3::new(-0.5, 0.5, 1.0),
-        Vec3::new(0.5,  0.5, 1.0),
-        Vec3::new(-0.5,-0.5, 1.0),
-        Vec3::new(0.5, -0.5, 1.0),
-    );
-    let scene = Scene::new(objects,lights,camera,world);
-    
-   
-
-    //OUTPUT
-
-    let pixels = scene.render();
-
+fn main()
+{
     let path = env::args()
         .nth(1)
         .expect("Expected a filename to output to.");
-    let file = File::create(path).unwrap();
+
+    let scene = scn::generate_default();    
+    let pixels = scene.render();
+
+    write_file(pixels, path);
+
+}
+
+fn write_file(pixels: Vec<Color>, filepath: String)
+{
+    let file = File::create(filepath).unwrap();
     let ref mut w = BufWriter::new(file);
 
     let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
@@ -100,56 +51,8 @@ fn main() {
     writer.write_image_data(&data).unwrap();
 }
 
-fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject>>
-{
-    println!("\nloading file \"{}\"...",filename);
-    let mut verts: Vec<Vec3> = Vec::new();
-    let mut tris: Vec<Box<dyn SceneObject>> = Vec::new();
-    let contents = fs::read_to_string(filename).unwrap();
-    {
-        for line in contents.lines()
-        {
-            let is_vert = line.find("v ");
-            if is_vert.is_some()
-            { 
-                let values: Vec<&str> = line.split(' ').collect();
-                let x = values[1].parse::<f64>().unwrap();
-                let y = values[2].parse::<f64>().unwrap();
-                let z = values[3].parse::<f64>().unwrap();
-                verts.push(Vec3::new(x,y,z));
-            }
-            
-            let is_face = line.find("f ");
-            if is_face.is_some()
-            { 
-                let values: Vec<&str> = line.split(' ').collect();
-                let mut i = Vec::new();
-                for value in &values[1..]
-                {
-                    if value.is_empty() == false
-                    {
-                        let ind: Vec<&str> = value.split('/').collect();
-                        i.push( ind[0].parse::<usize>().unwrap()-1 );
-                    }
-                }
-                tris.push( Box::new(Tri::new(verts[i[0]],verts[i[1]],verts[i[2]], material )) );
-                if i.len() > 3 //quad
-                {
-                    tris.push( Box::new(Tri::new(verts[i[0]],verts[i[2]],verts[i[3]], material )) );
-                }
-            }
-        }
-    }
-    return tris;
 
-}
-
-
-
-
-
-
-struct Scene
+pub struct Scene
 {
     objects: Vec<Box<dyn SceneObject>>,
     lights: Vec<Light>,
@@ -158,11 +61,11 @@ struct Scene
 }
 impl Scene
 {
-    fn new(objects: Vec<Box<dyn SceneObject>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
+    pub fn new(objects: Vec<Box<dyn SceneObject>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
     {
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
-    fn render(&self) -> Vec<Color>
+    pub fn render(&self) -> Vec<Color>
     {
         let t0 = Instant::now();
 
@@ -267,7 +170,7 @@ impl Scene
 }
 
 
-struct Camera
+pub struct Camera
 {
     origin: Vec3,
     upper_left: Vec3,
@@ -306,26 +209,26 @@ impl Camera
     }
 }
 
-struct World
+pub struct World
 {
     color: Color,
     strength: f64,
 }
 impl World
 {
-    fn new(color: Color, strength: f64) -> World
+    pub fn new(color: Color, strength: f64) -> World
     {
         World { color: color, strength: strength }
     }
 }
 
-enum Light
+pub enum Light
 {
     Point(PointLight),
     Sun(SunLight),
 }
 
-struct PointLight
+pub struct PointLight
 {
     origin: Vec3,
     strength: f64,
@@ -336,12 +239,12 @@ impl PointLight
     { PointLight { origin: origin, strength: strength } }
 }
 
-struct SunLight
+pub struct SunLight
 {
     direction: Vec3,
     strength: f64,
 }
-struct Tri
+pub struct Tri
 {
     verts: (Vec3,Vec3,Vec3),
     normal: Vec3,
@@ -349,7 +252,7 @@ struct Tri
 }
 impl Tri
 {
-    fn new(a: Vec3, b: Vec3, c: Vec3, material: Material) -> Tri
+    pub fn new(a: Vec3, b: Vec3, c: Vec3, material: Material) -> Tri
     { 
         let edge0 = b - a;
         let edge1 = c - a;
@@ -408,7 +311,7 @@ impl SceneObject for Tri
     }
 }
 
-struct Sphere
+pub struct Sphere
 {
     center: Vec3,
     radius: f64,
@@ -416,7 +319,7 @@ struct Sphere
 }
 impl Sphere
 {
-    fn new(center: Vec3, radius: f64, material: Material) -> Sphere
+    pub fn new(center: Vec3, radius: f64, material: Material) -> Sphere
     { Sphere { center: center, radius: radius, material: material } }
 }
 impl SceneObject for Sphere
@@ -456,34 +359,34 @@ impl SceneObject for Sphere
     }
 }
 #[derive(Clone,Copy)]
-struct Material
+pub struct Material
 {
     color: Color,
     reflective: bool,
 }
 impl Material
 {
-    fn new(color: Color, reflective: bool) -> Material
+    pub fn new(color: Color, reflective: bool) -> Material
     {
         Material { color: color, reflective: reflective }
     }
 }
 #[derive(Clone,Copy)]
-struct RaycastHit
+pub struct RaycastHit
 {
-    point: Vec3,
-    normal: Vec3,
-    depth: f64,
-    material: Material,
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub depth: f64,
+    pub material: Material,
 }
-struct Floor
+pub struct Floor
 {
     y: f64,
     material: Material
 }
 impl Floor
 {
-    fn new(y: f64, material: Material) -> Floor
+    pub fn new(y: f64, material: Material) -> Floor
     { Floor { y: y, material: material } }
 }
 impl SceneObject for Floor
@@ -513,19 +416,19 @@ impl SceneObject for Floor
 
 
 #[derive(Clone,Copy,Debug)]
-struct Ray
+pub struct Ray
 {
     start: Vec3,
     end: Vec3,
 }
 impl Ray
 {
-    fn new(start: Vec3, end: Vec3) -> Ray
+    pub fn new(start: Vec3, end: Vec3) -> Ray
     { Ray { start: start, end: end } }
 }
 
 #[derive(Clone,Copy,PartialEq)]
-struct Vec3
+pub struct Vec3
 {
     x: f64,
     y: f64,
@@ -533,34 +436,34 @@ struct Vec3
 }
 impl Vec3
 {
-    fn new(x: f64, y: f64, z: f64) -> Vec3
+    pub fn new(x: f64, y: f64, z: f64) -> Vec3
     { Vec3{x: x, y: y, z: z} }
-    fn dot(self, other: Vec3) -> f64
+    pub fn dot(self, other: Vec3) -> f64
     {
         self.x * other.x +
         self.y * other.y +
         self.z * other.z
     }
-    fn cross(self, other: Vec3) -> Vec3
+    pub fn cross(self, other: Vec3) -> Vec3
     {
         let x = self.y * other.z - self.z * other.y;
         let y = self.z * other.x - self.x * other.z;
         let z = self.x * other.y - self.y * other.x;
         Vec3::new(x,y,z)
     }
-    fn reflect(self, other: Vec3) -> Vec3
+    pub fn reflect(self, other: Vec3) -> Vec3
     {
         (other.unit() * (other.dot(self))) * 2.0 - self
     }
-    fn magn(&self) -> f64
+    pub fn magn(&self) -> f64
     {
         self.dot(*self).sqrt()
     }
-    fn unit(self) -> Vec3
+    pub fn unit(self) -> Vec3
     {
         self/self.magn()
     }
-    fn to_color(self) -> Color
+    pub fn to_color(self) -> Color
     {
         let r: u8 = (self.x * 128.0 + 128.0) as u8;
         let g: u8 = (self.y * 128.0 + 128.0) as u8;
@@ -640,7 +543,7 @@ impl Neg for Vec3
 
 
 #[derive(Clone,Copy,Debug)]
-struct Color
+pub struct Color
 {
     r: u8,
     g: u8,
@@ -649,7 +552,7 @@ struct Color
 }
 impl Color
 {
-    fn new(r: u8, g: u8, b: u8, a: u8) -> Color
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Color
     { Color{ r: r, g: g, b: b, a: a } }
 }
 impl Add for Color
