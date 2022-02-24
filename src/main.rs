@@ -1,6 +1,8 @@
 use png;
 use std::env;
+use std::fs;
 use std::fs::File;
+use std::time::{Instant, Duration};
 use std::io::BufWriter;
 use std::ops::Mul;
 use std::ops::Add;
@@ -10,8 +12,8 @@ use std::ops::Neg;
 use std::ops::Div;
 use std::fmt;
 
-const WIDTH:  usize = 512;
-const HEIGHT: usize = 512;
+const WIDTH:  usize = 256;
+const HEIGHT: usize = 256;
 
 fn main() {
 
@@ -19,27 +21,15 @@ fn main() {
     
     let sphere1 = Sphere::new
     (
-        Vec3::new(2.0, 0.0, 7.0),
+        Vec3::new(2.0, 0.0, 0.0),
         1.5,
-        Material::new(Color::new(255, 0, 0, 255),true),
+        Material::new(Color::new(255, 0, 0, 255),false),
     );
     let sphere2 = Sphere::new
     (
-        Vec3::new(-1.5, -0.75, 6.0),
-        1.5,
-        Material::new(Color::new(0, 255, 255, 255),false),
-    );
-    let sphere3 = Sphere::new
-    (
-        Vec3::new(0.5, 0.75, 10.0),
+        Vec3::new(-1.5, -0.75, 2.0),
         1.0,
-        Material::new(Color::new(255, 255, 0, 255),false),
-    );
-    let sphere4 = Sphere::new
-    (
-        Vec3::new(1.0, -1.25, 5.0),
-        0.75,
-        Material::new(Color::new(0, 0, 255, 255),false),
+        Material::new(Color::new(0, 255, 255, 255),false),
     );
     let floor = Floor::new
     (
@@ -48,25 +38,30 @@ fn main() {
     );
     let light1 = PointLight::new
     (
-        Vec3::new(-3.0, 2.0, 5.0),
-        0.5,
-    );
-    let light2 = PointLight::new
-    (
-        Vec3::new(4.0, 2.0, 2.0),
+        Vec3::new(0.0, 6.0, -2.0),
         1.0,
     );
     let world = World::new
     (
-        Color::new(0, 0, 20, 255),
+        Color::new(0, 0, 120, 255),
         1.0,
     );
-    let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(floor),Box::new(sphere3),Box::new(sphere2),Box::new(sphere1),Box::new(sphere4)];
-    let lights: Vec<Light> = vec![Light::Point(light2),Light::Point(light1)];
+    let tri1 = Tri::new
+    (
+        Vec3::new(1.0,-2.0,7.0),
+        Vec3::new(1.0,-2.0,9.0),
+        Vec3::new(0.0, -2.0,9.0),
+        Material::new(Color::new(255, 0, 0, 255),false),
+    );
+    //let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(tri1),Box::new(sphere2)];
+    let objects = read_obj("teapot1.obj", Material::new(Color::new(255,0,0,255),false));
+
+    let lights: Vec<Light> = vec![Light::Point(light1)];
+
     let camera = Camera::new
     (
         //origin
-        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.5, -7.0),
         //corners
         Vec3::new(-0.5, 0.5, 1.0),
         Vec3::new(0.5,  0.5, 1.0),
@@ -105,6 +100,54 @@ fn main() {
     writer.write_image_data(&data).unwrap();
 }
 
+fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject>>
+{
+    println!("\nloading file \"{}\"...",filename);
+    let mut verts: Vec<Vec3> = Vec::new();
+    let mut tris: Vec<Box<dyn SceneObject>> = Vec::new();
+    let contents = fs::read_to_string(filename).unwrap();
+    {
+        for line in contents.lines()
+        {
+            let is_vert = line.find("v ");
+            if is_vert.is_some()
+            { 
+                let values: Vec<&str> = line.split(' ').collect();
+                let x = values[1].parse::<f64>().unwrap();
+                let y = values[2].parse::<f64>().unwrap();
+                let z = values[3].parse::<f64>().unwrap();
+                verts.push(Vec3::new(x,y,z));
+            }
+            
+            let is_face = line.find("f ");
+            if is_face.is_some()
+            { 
+                let values: Vec<&str> = line.split(' ').collect();
+                let mut i = Vec::new();
+                for value in &values[1..]
+                {
+                    if value.is_empty() == false
+                    {
+                        let ind: Vec<&str> = value.split('/').collect();
+                        i.push( ind[0].parse::<usize>().unwrap()-1 );
+                    }
+                }
+                tris.push( Box::new(Tri::new(verts[i[0]],verts[i[1]],verts[i[2]], material )) );
+                if i.len() > 3 //quad
+                {
+                    tris.push( Box::new(Tri::new(verts[i[0]],verts[i[2]],verts[i[3]], material )) );
+                }
+            }
+        }
+    }
+    return tris;
+
+}
+
+
+
+
+
 
 struct Scene
 {
@@ -121,32 +164,54 @@ impl Scene
     }
     fn render(&self) -> Vec<Color>
     {
+        let t0 = Instant::now();
+
         let mut pixels: Vec<Color> = Vec::new();
+        let mut depth_buffer: Vec<f64> = Vec::new();
         
+        println!("getting view rays...");
         let rays = &self.camera.rays();
 
         let num_rays = rays.len();
         for _ in 0..num_rays
-        { pixels.push(self.world.color); }
-        
-        for object_index in 0..self.objects.len()
         {
+            pixels.push(self.world.color);
+            depth_buffer.push(1000.0);
+        }
+
+        let num_objects = self.objects.len();
+
+        println!("\nrendering...");
+        print!("objects:  ");
+        
+        for object_index in 0..num_objects
+        {
+            let percent = ((object_index as f32 /num_objects as f32) * 100.0) as u8;
+            print!("\x1b[s{}/{}\x1b[u",object_index,num_objects);
             for i in 0..num_rays
             {
+
                 let hit = &self.objects[object_index].raycast(rays[i]);
                 if hit.is_some()
                 {
-                    if hit.unwrap().material.reflective
+                    if hit.unwrap().depth < depth_buffer[i]
                     {
-                        pixels[i] = self.shade_reflective( rays[i],hit.unwrap());
-                    }
-                    else
-                    {
-                        pixels[i] = self.shade_diffuse(hit.unwrap());
+                        depth_buffer[i] = hit.unwrap().depth;
+                        if hit.unwrap().material.reflective
+                        {
+                            pixels[i] = self.shade_reflective( rays[i],hit.unwrap());
+                        }
+                        else
+                        {
+                            //pixels[i] = hit.unwrap().normal.to_color();
+                            pixels[i] = self.shade_diffuse(hit.unwrap());
+                        }
                     }
                 }
             }
         }
+
+        println!("finished rendering in {} secs", t0.elapsed().as_secs());
         return pixels;
     }
     fn shade_diffuse(&self, hit: RaycastHit) -> Color
@@ -194,7 +259,7 @@ impl Scene
             let hit1 = &self.objects[object_index_1].raycast( new_ray );
             if hit1.is_some()
             {
-                pixel = self.shade_diffuse( hit1.unwrap() )
+                pixel = self.shade_diffuse( hit1.unwrap() );
             }
         }
         return pixel;
@@ -231,7 +296,7 @@ impl Camera
             dir.x = self.upper_left.x;
             for _x in 0..WIDTH
             {
-                let ray_end = (dir * self.far_clip) + self.origin;
+                let ray_end = dir + self.origin;
                 output.push(Ray::new(self.origin, ray_end));
                 dir.x += dx;
             }
@@ -276,6 +341,72 @@ struct SunLight
     direction: Vec3,
     strength: f64,
 }
+struct Tri
+{
+    verts: (Vec3,Vec3,Vec3),
+    normal: Vec3,
+    material: Material
+}
+impl Tri
+{
+    fn new(a: Vec3, b: Vec3, c: Vec3, material: Material) -> Tri
+    { 
+        let edge0 = b - a;
+        let edge1 = c - a;
+        let normal = edge0.cross(edge1).unit();
+        Tri { verts: ( a, b, c ), normal: normal, material: material}
+    }
+}
+impl SceneObject for Tri
+{
+    fn raycast(&self, ray: Ray) -> Option<RaycastHit>
+    {
+        //Moller-Trumbore algorithm:
+        const EPSILON: f64 = 0.000001;
+        
+        let dir = (ray.end - ray.start).unit();
+
+        let edge0 = self.verts.1 - self.verts.0;
+        let edge1 = self.verts.2 - self.verts.0;
+
+        let h = dir.cross(edge1);
+        let a = edge0.dot(h);
+
+        if a > -EPSILON && a < EPSILON
+        { return None; }
+
+        let f = 1.0/a;
+        let s = ray.start - self.verts.0;
+        let u = f * (s.dot(h));
+
+
+        if u < 0.0 || u > 1.0
+        { return None; }
+
+        
+        let q = s.cross(edge0);
+        let v = f * (dir.dot(q));
+
+        if v < 0.0 || (u + v) > 1.0
+        { return None; }
+        
+        let t = f * (edge1.dot(q));
+        
+        if t > EPSILON
+        {
+            let point = ray.start + (dir * t);
+            return Some(RaycastHit
+            {
+                point: point,
+                depth: t,
+                normal: self.normal,
+                material: self.material,
+            });
+        }
+        else
+        { return None; }
+    }
+}
 
 struct Sphere
 {
@@ -292,7 +423,7 @@ impl SceneObject for Sphere
 {
     fn raycast(&self, ray: Ray) -> Option<RaycastHit>
     {
-        let delta = ray.end - ray.start;
+        let delta = (ray.end - ray.start).unit();
        
         let a = delta.dot(delta);
         let b = (delta * 2.0).dot(ray.start - self.center);
@@ -308,13 +439,14 @@ impl SceneObject for Sphere
         if dsc >= 0.0
         {
             let t = (-b -dsc.sqrt()) / (2.0 * a);
-            let point = ray.start + ( Vec3::new(t * delta.x, t * delta.y, t * delta.z ) );
+            let point = ray.start + (delta * t);
             if (point - ray.start).dot(delta) > 0.0 //check that sphere is not behind ray
             {
-                let normal = (point - self.center) * (1.0/self.radius);
+                let normal = (point - self.center)/self.radius;
                 hit = Some(RaycastHit 
                 {
                     point: point,
+                    depth: t,
                     normal: normal,
                     material: self.material,
                 });
@@ -341,6 +473,7 @@ struct RaycastHit
 {
     point: Vec3,
     normal: Vec3,
+    depth: f64,
     material: Material,
 }
 struct Floor
@@ -371,6 +504,7 @@ impl SceneObject for Floor
             {
                 normal: Vec3::new(0.0,1.0,0.0),
                 point: point,
+                depth: scl,
                 material: self.material,
             });
         }
@@ -403,7 +537,16 @@ impl Vec3
     { Vec3{x: x, y: y, z: z} }
     fn dot(self, other: Vec3) -> f64
     {
-        self.x * other.x + self.y * other.y + self.z * other.z
+        self.x * other.x +
+        self.y * other.y +
+        self.z * other.z
+    }
+    fn cross(self, other: Vec3) -> Vec3
+    {
+        let x = self.y * other.z - self.z * other.y;
+        let y = self.z * other.x - self.x * other.z;
+        let z = self.x * other.y - self.y * other.x;
+        Vec3::new(x,y,z)
     }
     fn reflect(self, other: Vec3) -> Vec3
     {
@@ -454,9 +597,10 @@ impl Div<f64> for Vec3
     type Output = Vec3;
     fn div(self, other: f64) -> Vec3
     {
-        let x = self.x / other;
-        let y = self.y / other;
-        let z = self.z / other;
+        let factor = 1.0 / other;
+        let x = self.x * factor;
+        let y = self.y * factor;
+        let z = self.z * factor;
         Vec3::new(x,y,z)
     }
 }
@@ -516,7 +660,7 @@ impl Add for Color
         let mut r = self.r as u16 + other.r as u16;
         let mut g = self.g as u16 + other.g as u16;
         let mut b = self.b as u16 + other.b as u16;
-        let mut a = self.a;
+        let a = self.a;
         if r > 255
         { r = 255; }
         if g > 255
