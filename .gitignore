@@ -2,3 +2,8 @@
 .gitignore
 test.png
 out.png
+teapot.png
+*.obj
+*.mtl
+!teapot1.obj
+/newell_teaset/
