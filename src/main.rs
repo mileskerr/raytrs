@@ -238,13 +238,7 @@ impl SceneObject for Tri
         if t > EPSILON
         {
             let point = ray.start + (dir * t);
-            return Some(RaycastHit
-            {
-                point: point,
-                depth: t,
-                normal: self.normal,
-                material: self.material,
-            });
+            return Some(RaycastHit::new(point, self.normal, t, self.material ));
         }
         else
         { return None; }
@@ -275,13 +269,7 @@ impl SceneObject for Sphere
             if (point - ray.start).dot(delta) > 0.0 //check that sphere is not behind ray
             {
                 let normal = (point - self.center)/self.radius;
-                hit = Some(RaycastHit 
-                {
-                    point: point,
-                    depth: t,
-                    normal: normal,
-                    material: self.material,
-                });
+                hit = Some(RaycastHit::new(point, normal, t, self.material));
             }
         }
         return hit;
@@ -298,16 +286,10 @@ impl SceneObject for Floor
         }
         else
         {
-            let scl = (self.y - ray.start.y) / delta.y;
-            let point = delta * scl + ray.start;
+            let t = (self.y - ray.start.y) / delta.y;
+            let point = delta * t + ray.start;
 
-            return Some(RaycastHit
-            {
-                normal: Vec3::new(0.0,1.0,0.0),
-                point: point,
-                depth: scl,
-                material: self.material,
-            });
+            return Some(RaycastHit::new(Vec3::new(0.0,1.0,0.0), point, t, self.material));
         }
     }
 }

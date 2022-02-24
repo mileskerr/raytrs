@@ -283,6 +283,11 @@ pub struct RaycastHit
     pub depth: f64,
     pub material: Material,
 }
+impl RaycastHit
+{
+    pub fn new(point: Vec3, normal: Vec3, depth: f64, material: Material) -> RaycastHit
+    { RaycastHit { point: point, normal: normal, depth: depth, material: material } }
+}
 
 
 pub struct Floor
