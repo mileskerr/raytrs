@@ -1,3 +1,4 @@
+use fast_inv_sqrt::InvSqrt64;
 use std::ops::Mul;
 use std::ops::Add;
 use std::ops::Sub;
@@ -48,11 +49,10 @@ impl Vec3
         let r: u8 = (self.x * 128.0 + 128.0) as u8;
         let g: u8 = (self.y * 128.0 + 128.0) as u8;
         let b: u8 = (self.z * 128.0 + 128.0) as u8;
-
         Color::new(r,g,b,255)
     }
-
 }
+
 impl fmt::Debug for Vec3
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result

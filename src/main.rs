@@ -1,8 +1,12 @@
 use png;
+use std::thread;
 use std::env;
 use std::fs::File;
 use std::time::Instant;
 use std::io::BufWriter;
+
+use std::sync::Arc;
+use std::sync::Mutex;
 
 mod scn;
 mod space;
@@ -11,6 +15,9 @@ pub use space::*;
 
 const WIDTH:  usize = 256;
 const HEIGHT: usize = 256;
+const THREADS: usize = 16;
+
+const RAYS_PER_THREAD: usize = (WIDTH*HEIGHT)/THREADS;
 
 fn main()
 {
@@ -18,14 +25,14 @@ fn main()
         .nth(1)
         .expect("Expected a filename to output to.");
 
-    let scene = scn::generate_default();    
+    let scene: Scene = scn::generate_default();    
     let pixels = scene.render();
 
     write_file(pixels, path);
 
 }
 
-fn write_file(pixels: Vec<Color>, filepath: String)
+fn write_file(pixels: [Color;WIDTH*HEIGHT], filepath: String)
 {
     let file = File::create(filepath).unwrap();
     let ref mut w = BufWriter::new(file);
@@ -51,68 +58,74 @@ fn write_file(pixels: Vec<Color>, filepath: String)
 
 pub struct Scene
 {
-    objects: Vec<Box<dyn SceneObject>>,
+    objects: Vec<Arc<dyn SceneObject + Send + Sync>>,
     lights: Vec<Light>,
     camera: Camera,
     world: World,
 }
 impl Scene
 {
-    fn new(objects: Vec<Box<dyn SceneObject>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
+    fn new(objects: Vec<Arc<dyn SceneObject + Send + Sync>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
     {
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
-    fn render(&self) -> Vec<Color>
+    fn render(self) -> [Color;WIDTH*HEIGHT]
     {
         let t0 = Instant::now();
 
-        let mut pixels: Vec<Color> = Vec::new();
-        let mut depth_buffer: Vec<f64> = Vec::new();
-        
-        println!("getting view rays...");
-        let rays = &self.camera.rays();
+        let self_arc = Arc::new(self);
+        let self1 = Arc::clone(&self_arc);
+        let rays = self1.camera.rays();
 
-        let num_rays = rays.len();
-        for _ in 0..num_rays
+        let mut comp_pixels: Arc<Mutex<[Color;WIDTH*HEIGHT]>> = Arc::new(Mutex::new([self1.world.color;WIDTH*HEIGHT]));
+        let mut comp_depth_buffer: Arc<Mutex<[f64;WIDTH*HEIGHT]>> = Arc::new(Mutex::new([1000.0;WIDTH*HEIGHT]));
+       
+        println!("rendering...   ");
+        let mut object_index = 0;
+        for object in &self1.objects
         {
-            pixels.push(self.world.color);
-            depth_buffer.push(1000.0);
-        }
+            print!("\x1b[s{}/{}\x1b[u",object_index,&self1.objects.len());
+            object_index += 1;
 
-        let num_objects = self.objects.len();
-
-        println!("\nrendering...");
-        print!("objects:  ");
-        
-        for object_index in 0..num_objects
-        {
-            let percent = ((object_index as f32 /num_objects as f32) * 100.0) as u8;
-            print!("\x1b[s{}/{}\x1b[u",object_index,num_objects);
-            for i in 0..num_rays
+            let mut handles = Vec::new();
+            
+            for i in 0..THREADS
             {
+                let rays_vec = Arc::clone(&rays[i]);
+                let obj_clone = Arc::clone(&object);
+                let self_clone = Arc::clone(&self_arc);
+                let comp_pixels_clone = Arc::clone(&comp_pixels);
+                let comp_db_clone = Arc::clone(&comp_depth_buffer);
 
-                let hit = &self.objects[object_index].raycast(rays[i]);
-                if hit.is_some()
+
+                let handle = thread::spawn(move ||
                 {
-                    if hit.unwrap().depth < depth_buffer[i]
+                    //let mut pixels: [Color;RAYS_PER_THREAD] = [self_clone.world.color;RAYS_PER_THREAD];
+                    //let mut depth_buffer: [f64;RAYS_PER_THREAD] = [1000.0;RAYS_PER_THREAD];
+                    for j in 0..RAYS_PER_THREAD
                     {
-                        depth_buffer[i] = hit.unwrap().depth;
-                        if hit.unwrap().material.reflective
+                        let hit = obj_clone.raycast(rays_vec[j]);
+                        if hit.is_some()
                         {
-                            pixels[i] = self.shade_reflective( rays[i],hit.unwrap());
-                        }
-                        else
-                        {
-                            //pixels[i] = hit.unwrap().normal.to_color();
-                            pixels[i] = self.shade_diffuse(hit.unwrap());
+                            let db = &mut comp_db_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)];
+                            if hit.unwrap().depth < *db
+                            {
+                                *db = hit.unwrap().depth;
+                                comp_pixels_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)] =
+                                    self_clone.shade_diffuse(hit.unwrap());
+                            }
                         }
                     }
-                }
+                });
+                handles.push(handle);
             }
-        }
 
+            for handle in handles
+            { handle.join().unwrap(); }
+        }
         println!("finished rendering in {} secs", t0.elapsed().as_secs());
-        return pixels;
+       
+        return *comp_pixels.lock().unwrap();
     }
     fn shade_diffuse(&self, hit: RaycastHit) -> Color
     {
@@ -131,10 +144,10 @@ impl Scene
                     { l0 = 0.0 }
                     let mut new_light = l0 * l0;
                     //shadows
-                    for object_index_1 in 0..self.objects.len()
+                    for i in 0..self.objects.len()
                     {
                         let ray = Ray::new( hit.point, point_light.origin);
-                        let hit1 = &self.objects[object_index_1].raycast( ray );
+                        let hit1 = &self.objects[i].raycast( ray );
                         if hit1.is_some()
                         {
                             new_light = 0.0;
@@ -173,24 +186,42 @@ impl Camera
         { origin: origin, upper_left: upper_left, upper_right: upper_right,
         lower_left: lower_left, lower_right: lower_right, far_clip: 20.0, }
     }
-    fn rays(&self) -> Vec<Ray>
+    fn rays(&self) -> Vec<Arc<Vec<Ray>>>
     {
-        let mut output = Vec::new();
+        let mut non_arc = Vec::new();
         let mut dir = self.upper_left;
+
+        let num_pixels = WIDTH * HEIGHT;
+
+        for i in 0..THREADS
+        { 
+            non_arc.push(Vec::new());
+        }
 
         let dx = (self.upper_right.x - self.upper_left.x)/(WIDTH as f64);
         let dy = (self.upper_right.y - self.lower_right.y)/(HEIGHT as f64);
 
-        for _y in 0..HEIGHT
+        let mut thread_index = 0;
+
+        for y in 0..HEIGHT
         {
             dir.x = self.upper_left.x;
-            for _x in 0..WIDTH
+            for x in 0..WIDTH
             {
-                let ray_end = dir + self.origin;
-                output.push(Ray::new(self.origin, ray_end));
+                if (WIDTH * y + x) >= RAYS_PER_THREAD * thread_index + RAYS_PER_THREAD
+                { thread_index += 1;
+                    println!("{}",WIDTH * y + x);
+                }
+                let ray_end = dir.unit() + self.origin;
+                non_arc[thread_index].push(Ray::new(self.origin, ray_end));
                 dir.x += dx;
             }
             dir.y -= dy;
+        }
+        let mut output = Vec::new();
+        for i in 0..THREADS
+        {
+            output.push(Arc::new(non_arc[i].clone()));
         }
         return output;
     }
@@ -264,7 +295,7 @@ impl SceneObject for Sphere
 
         if dsc >= 0.0
         {
-            let t = (-b -dsc.sqrt()) / (2.0 * a);
+            let t = (- b - dsc.sqrt()) / (2.0 * a);
             let point = ray.start + (delta * t);
             if (point - ray.start).dot(delta) > 0.0 //check that sphere is not behind ray
             {

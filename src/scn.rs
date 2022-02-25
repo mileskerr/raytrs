@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 
 use crate::*;
@@ -26,7 +27,7 @@ pub fn generate_default() -> Scene
     );
     let light1 = PointLight::new
     (
-        Vec3::new(0.0, 6.0, -2.0),
+        Vec3::new(0.0, 7.0, -4.0),
         1.0,
     );
     let world = World::new
@@ -58,14 +59,15 @@ pub fn generate_default() -> Scene
     );
     
     Scene::new(objects,lights,camera,world)
+
 }
 
 
-fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject>>
+fn read_obj(filename: &str, material: Material) -> Vec<Arc<dyn SceneObject + Send + Sync>>
 {
     println!("\nloading file \"{}\"...",filename);
     let mut verts: Vec<Vec3> = Vec::new();
-    let mut tris: Vec<Box<dyn SceneObject>> = Vec::new();
+    let mut tris: Vec<Arc<dyn SceneObject + Send + Sync>> = Vec::new();
     let contents = fs::read_to_string(filename).unwrap();
     {
         for line in contents.lines()
@@ -93,10 +95,10 @@ fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject>>
                         i.push( ind[0].parse::<usize>().unwrap()-1 );
                     }
                 }
-                tris.push( Box::new(Tri::new(verts[i[0]],verts[i[1]],verts[i[2]], material )) );
+                tris.push( Arc::new(Tri::new(verts[i[0]],verts[i[1]],verts[i[2]], material )) );
                 if i.len() > 3 //quad
                 {
-                    tris.push( Box::new(Tri::new(verts[i[0]],verts[i[2]],verts[i[3]], material )) );
+                    tris.push( Arc::new(Tri::new(verts[i[0]],verts[i[2]],verts[i[3]], material )) );
                 }
             }
         }

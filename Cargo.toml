@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 png = "0.17.3"
+fast_inv_sqrt = "~1.0.1"
