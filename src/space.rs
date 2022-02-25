@@ -232,17 +232,23 @@ pub struct SunLight
 pub struct Tri
 {
     pub verts: (Vec3,Vec3,Vec3),
-    pub normal: Vec3,
+    pub vx_normals: (Vec3,Vec3,Vec3),
     pub material: Material
 }
 impl Tri
 {
-    pub fn new(a: Vec3, b: Vec3, c: Vec3, material: Material) -> Tri
+    pub fn new(a: Vec3,    b: Vec3,    c: Vec3,
+               vn_a: Vec3, vn_b: Vec3, vn_c: Vec3,
+               material: Material) -> Tri
+    { 
+        Tri { verts: ( a, b, c ), vx_normals: ( vn_a, vn_b, vn_c ), material: material}
+    }
+    pub fn auto_normal(a: Vec3, b: Vec3, c: Vec3, material: Material) -> Tri
     { 
         let edge0 = b - a;
         let edge1 = c - a;
         let normal = edge0.cross(edge1).unit();
-        Tri { verts: ( a, b, c ), normal: normal, material: material}
+        Tri { verts: ( a, b, c ), vx_normals: (normal, normal, normal), material: material}
     }
 }
 

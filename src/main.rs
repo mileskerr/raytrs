@@ -13,9 +13,9 @@ mod space;
 
 pub use space::*;
 
-const WIDTH:  usize = 256;
-const HEIGHT: usize = 256;
-const THREADS: usize = 16;
+const WIDTH:  usize = 300;
+const HEIGHT: usize = 300;
+const THREADS: usize = 8;
 
 const RAYS_PER_THREAD: usize = (WIDTH*HEIGHT)/THREADS;
 
@@ -111,8 +111,15 @@ impl Scene
                             if hit.unwrap().depth < *db
                             {
                                 *db = hit.unwrap().depth;
-                                comp_pixels_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)] =
-                                    self_clone.shade_diffuse(hit.unwrap());
+                                if hit.unwrap().material.reflective
+                                {
+                                    comp_pixels_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)] =
+                                        self_clone.shade_reflective(rays_vec[j],hit.unwrap());
+                                } else
+                                {
+                                    comp_pixels_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)] =
+                                        self_clone.shade_diffuse(hit.unwrap());
+                                }
                             }
                         }
                     }
@@ -209,9 +216,7 @@ impl Camera
             for x in 0..WIDTH
             {
                 if (WIDTH * y + x) >= RAYS_PER_THREAD * thread_index + RAYS_PER_THREAD
-                { thread_index += 1;
-                    println!("{}",WIDTH * y + x);
-                }
+                { thread_index += 1; }
                 let ray_end = dir.unit() + self.origin;
                 non_arc[thread_index].push(Ray::new(self.origin, ray_end));
                 dir.x += dx;
@@ -228,9 +233,6 @@ impl Camera
 }
 
 
-
-
-
 impl SceneObject for Tri
 {
     fn raycast(&self, ray: Ray) -> Option<RaycastHit>
@@ -239,28 +241,27 @@ impl SceneObject for Tri
         const EPSILON: f64 = 0.000001;
         
         let dir = (ray.end - ray.start).unit();
-
+        
         let edge0 = self.verts.1 - self.verts.0;
         let edge1 = self.verts.2 - self.verts.0;
-
+        
         let h = dir.cross(edge1);
         let a = edge0.dot(h);
-
+        
         if a > -EPSILON && a < EPSILON
         { return None; }
-
+        
         let f = 1.0/a;
         let s = ray.start - self.verts.0;
         let u = f * (s.dot(h));
-
-
+        
         if u < 0.0 || u > 1.0
         { return None; }
 
         
         let q = s.cross(edge0);
         let v = f * (dir.dot(q));
-
+        
         if v < 0.0 || (u + v) > 1.0
         { return None; }
         
@@ -269,7 +270,10 @@ impl SceneObject for Tri
         if t > EPSILON
         {
             let point = ray.start + (dir * t);
-            return Some(RaycastHit::new(point, self.normal, t, self.material ));
+
+            let normal = (self.vx_normals.1 * u) + (self.vx_normals.2 * v) + (self.vx_normals.0 * (1.0 - u - v)); 
+
+            return Some(RaycastHit::new(point, normal, t, self.material ));
         }
         else
         { return None; }
@@ -328,6 +332,4 @@ impl SceneObject for Floor
 
 
 trait SceneObject
-{
-    fn raycast(&self, ray: Ray) -> Option<RaycastHit>;
-}
+{ fn raycast(&self, ray: Ray) -> Option<RaycastHit>; }
