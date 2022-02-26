@@ -10,30 +10,47 @@ pub fn generate_default() -> Scene
 {
     let sphere1 = Sphere::new
     (
-        Vec3::new(1.0, 0.2, -3.0),
-        0.3,
+        Vec3::new(-1.2, 0.5, -1.0),
+        0.5,
         Material::new(Color::new(0, 0, 255, 255),false),
     );
     let sphere2 = Sphere::new
     (
-        Vec3::new(-1.0, 1.0, -4.0),
-        0.5,
+        Vec3::new(-1.0, 0.75, -4.0),
+        0.75,
         Material::new(Color::new(0, 255, 255, 255),false),
     );
     let sphere3 = Sphere::new
     (
-        Vec3::new(0.5, 2.0, -2.0),
+        Vec3::new(0.5, 0.5, -3.0),
         0.5,
         Material::new(Color::new(255, 0, 255, 255),false),
+    );
+    let sphere4 = Sphere::new
+    (
+        Vec3::new(3.0, 1.0, -2.0),
+        1.0,
+        Material::new(Color::new(255, 255, 0, 255),false),
+    );
+    let sphere5 = Sphere::new
+    (
+        Vec3::new(0.5, 4.0, 5.0),
+        2.5,
+        Material::new(Color::new(0, 255, 0, 255),false),
     );
     let light1 = PointLight::new
     (
         Vec3::new(0.0, 7.0, -4.0),
         1.0,
     );
+    let floor = Floor::new
+    (
+        0.0,
+        Material::new(Color::new(255,255,255,255),false),
+    );
     let world = World::new
     (
-        Color::new(0, 0, 120, 255),
+        Color::new(0, 0, 0, 255),
         1.0,
     );
     let tri1 = Tri::auto_normal
@@ -44,20 +61,19 @@ pub fn generate_default() -> Scene
         Material::new(Color::new(255, 0, 0, 255),false),
     );
     //let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(tri1),Box::new(sphere2)];
-    let mut objects: Vec<Arc<dyn SceneObject + Send + Sync>> = vec![Arc::new(sphere2),Arc::new(sphere1),Arc::new(sphere3)];
-    objects.append(&mut read_obj("teapot1.obj", Material::new(Color::new(255,0,0,255),false)));
+    let mut objects: Vec<Arc<dyn SceneObject + Send + Sync>> = vec![Arc::new(floor),Arc::new(sphere2),Arc::new(sphere1),Arc::new(sphere3),Arc::new(sphere4),Arc::new(sphere5)];
+    objects.append(&mut read_obj("teapot1.obj", Material::new(Color::new(100,100,100,255),true)));
 
     let lights: Vec<Light> = vec![Light::Point(light1)];
 
     let camera = Camera::new
     (
         //origin
-        Vec3::new(0.0, 1.5, -7.0),
-        //corners
-        Vec3::new(-0.5, 0.5, 1.0),
-        Vec3::new(0.5,  0.5, 1.0),
-        Vec3::new(-0.5,-0.5, 1.0),
-        Vec3::new(0.5, -0.5, 1.0),
+        Vec3::new(0.0, 3.0, -7.0),
+        //direction
+        Vec3::new(0.0, -0.2, 1.0),
+        //focal length
+        1.0,
     );
     
     Scene::new(objects,lights,camera,world)

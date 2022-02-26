@@ -146,7 +146,7 @@ impl Scene
                     //diffuse shading
                     let light_vector = point_light.origin - hit.point;
                     let light_dir = light_vector / light_vector.magn();
-                    let mut l0 = light_dir.dot(hit.normal) * point_light.strength;
+                    let mut l0 = (light_dir.dot(hit.normal)+0.1) * point_light.strength;
                     if l0 < 0.0 //clamp because we dont want negative values messing things up
                     { l0 = 0.0 }
                     let mut new_light = l0 * l0;
@@ -174,7 +174,7 @@ impl Scene
 
         for object_index_1 in 0..self.objects.len()
         {
-            let new_ray = Ray::new(hit.point, (ray.start - ray.end).reflect(hit.normal) + hit.point);
+            let new_ray = Ray::new(hit.point, (ray.start - ray.end).unit().reflect(hit.normal) + hit.point);
             let hit1 = &self.objects[object_index_1].raycast( new_ray );
             if hit1.is_some()
             {
@@ -188,11 +188,30 @@ impl Scene
 
 impl Camera
 {
-    fn new(origin: Vec3, upper_left: Vec3, upper_right: Vec3, lower_left: Vec3, lower_right: Vec3) -> Camera
+    fn new( origin: Vec3, direction: Vec3, length: f64) -> Camera
+    {
+        let z_unit = direction.unit();
+        let x_unit = Vec3::new(0.0,1.0,0.0).cross(z_unit).unit();
+        let y_unit = z_unit.cross(x_unit);
+
+        let view_matrix = Matrix3::new(x_unit,y_unit,z_unit);
+
+        let aspect = (HEIGHT as f64) / (WIDTH as f64);
+        let half = aspect/2.0;
+
+        let upper_left  = view_matrix * Vec3::new(-half, 0.5,1.0);
+        let upper_right = view_matrix * Vec3::new(half,  0.5,1.0);
+        let lower_left  = view_matrix * Vec3::new(-half,-0.5,1.0);
+        let lower_right = view_matrix * Vec3::new(half, -0.5,1.0);
+
+        Camera { origin: origin, upper_left: upper_left, upper_right: upper_right,
+        lower_left: lower_left, lower_right: lower_right, }
+    }
+    /*fn new(origin: Vec3, upper_left: Vec3, upper_right: Vec3, lower_left: Vec3, lower_right: Vec3) -> Camera
     { Camera
         { origin: origin, upper_left: upper_left, upper_right: upper_right,
-        lower_left: lower_left, lower_right: lower_right, far_clip: 20.0, }
-    }
+        lower_left: lower_left, lower_right: lower_right, }
+    }*/
     fn rays(&self) -> Vec<Arc<Vec<Ray>>>
     {
         let mut non_arc = Vec::new();
@@ -314,17 +333,17 @@ impl SceneObject for Floor
 {
     fn raycast(&self, ray: Ray) -> Option<RaycastHit>
     {
-        let delta = ray.end - ray.start;
-        if delta.y > 0.0
+        let dir = (ray.end - ray.start).unit();
+        if dir.y >= 0.0
         {
             return None;
         }
         else
         {
-            let t = (self.y - ray.start.y) / delta.y;
-            let point = delta * t + ray.start;
+            let t = (self.y - ray.start.y) / dir.y;
+            let point = dir * t + ray.start;
 
-            return Some(RaycastHit::new(Vec3::new(0.0,1.0,0.0), point, t, self.material));
+            return Some(RaycastHit::new(point, Vec3::new(0.0,1.0,0.0), t, self.material));
         }
     }
 }

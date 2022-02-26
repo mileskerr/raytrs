@@ -34,7 +34,7 @@ impl Vec3
     }
     pub fn reflect(self, other: Vec3) -> Vec3
     {
-        (other.unit() * (other.dot(self))) * 2.0 - self
+        (other * (other.dot(self))) * 2.0 - self
     }
     pub fn magn(&self) -> f64
     {
@@ -99,6 +99,31 @@ impl Add for Vec3
     }
 }
 
+#[derive(Clone,Copy,Debug)]
+pub struct Matrix3
+{
+    pub a: Vec3,
+    pub b: Vec3,
+    pub c: Vec3,
+}
+impl Matrix3
+{
+    pub fn new( a: Vec3, b: Vec3, c: Vec3) -> Matrix3
+    {
+        Matrix3 { a: a, b: b, c: c }
+    }
+}
+impl Mul<Vec3> for Matrix3
+{
+    type Output = Vec3;
+    fn mul(self, other: Vec3) -> Vec3
+    {
+        let x = self.a * other.x;
+        let y = self.b * other.y;
+        let z = self.c * other.z;
+        x + y + z
+    }
+}
 
 #[derive(Clone,Copy,Debug)]
 pub struct Ray
@@ -190,7 +215,6 @@ pub struct Camera
     pub upper_right: Vec3,
     pub lower_left: Vec3,
     pub lower_right: Vec3,
-    pub far_clip: f64,
 }
 pub struct World
 {
