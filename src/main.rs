@@ -49,7 +49,7 @@ fn main() {
         "\x1b[?47l", //restore screen
         "\x1b[u",    //restore cursor
         "\x1b[?25h", //show cursor
-        "\n\ndone rendering in ", t0.elapsed().as_secs(), " seconds\n"
+        "\ndone rendering in ", t0.elapsed().as_secs(), " seconds\n"
     );
 
 }
@@ -66,8 +66,7 @@ fn write_file(pixels: Vec<Color>, filepath: String)
     let mut writer = encoder.write_header().unwrap();
 
     let mut data = [0;WIDTH*HEIGHT*3];
-    for i in 0..NUM_PIXELS
-    {
+    for i in 0..NUM_PIXELS {
         let j = i * 3;
         data[j  ] = pixels[i].r;
         data[j+1] = pixels[i].g;
@@ -92,21 +91,20 @@ impl Scene
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
     fn render(self) -> Vec<Color> {
-        //TODO: add with capacity for the new vectors
-
-
         println!("preparing... ");
 
         let scene = Arc::new(self);
         let dirs = Arc::new(scene.camera.dirs());
         let camera_origin = scene.camera.origin;
-        let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::new();
-        let mut handles = Vec::new();
+        let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::with_capacity(THREADS);
+        let mut handles = Vec::with_capacity(THREADS);
 
         println!("\nrendering...");
+        let cursor_offset = 7; //legit detecting cursor position is really hard. just hardcoding it
 
         for i in 0..THREADS {
-            pixels.push(Arc::new(Mutex::new(Vec::new())));
+            let formatted_i = if i > 9 { i.to_string() + ":" } else { i.to_string() + ": " };
+            pixels.push(Arc::new(Mutex::new(Vec::with_capacity(PIXELS_PER_THREAD))));
             let pixels = Arc::clone(&pixels[i]);
             let dirs = Arc::clone(&dirs);
             let scene = Arc::clone(&scene);
@@ -115,12 +113,14 @@ impl Scene
                 //println!("thread {}:," 
                 let mut pixels = pixels.lock().unwrap();
                 let mut depths = Vec::new();
-                for _ in 0..PIXELS_PER_THREAD { //solid black background first
+                for _ in 0..PIXELS_PER_THREAD { //solid black background (really far away) first
                     pixels.push(Color::new(0,0,0,255));
                     depths.push(f64::MAX);
                 }
                 for k in 0..scene.objects.len() {
-                    print!("\x1b[{};0fthread {}: {}",i+7,i,progress_bar(k+1, scene.objects.len())); //progress bar
+                    print!( //progress bar
+                        "\x1b[{};0fthread {} {}",i+cursor_offset,formatted_i,progress_bar(k+1, scene.objects.len())
+                    );
                     for j in 0..PIXELS_PER_THREAD {
                         let ray = Ray::new(camera_origin, dirs[(i * PIXELS_PER_THREAD) + j] + camera_origin);
                         let hit = scene.objects[k].raycast(ray);
@@ -144,7 +144,8 @@ impl Scene
             handle.join().unwrap();
         }
 
-        println!("cleaning up...   ");
+        println!("\x1b[{};0fcleaning up...   ",cursor_offset+THREADS+1);
+
         let mut output = Vec::new(); //merge all the thread vectors into a single vector
         for thread in pixels {
             for pixel in thread.lock().unwrap().clone() {
@@ -260,7 +261,7 @@ impl Camera
         let dx = (self.upper_right.x - self.upper_left.x)/(WIDTH as f64);
         let dy = (self.upper_right.y - self.lower_right.y)/(HEIGHT as f64);
 
-        let mut dirs = Vec::new();
+        let mut dirs = Vec::with_capacity(NUM_PIXELS);
 
         for y in 0..HEIGHT {
             dir.x = self.upper_left.x;
@@ -308,8 +309,7 @@ impl SceneObject for Tri {
         
         let t = f * (edge1.dot(q));
         
-        if t > EPSILON
-        {
+        if t > EPSILON {
             let point = ray.start + (dir * t);
 
             let normal = (self.vx_normals.1 * u) + (self.vx_normals.2 * v) + (self.vx_normals.0 * (1.0 - u - v)); 
@@ -321,10 +321,8 @@ impl SceneObject for Tri {
     }
 }
 
-impl SceneObject for Sphere
-{
-    fn raycast(&self, ray: Ray) -> Option<RaycastHit>
-    {
+impl SceneObject for Sphere {
+    fn raycast(&self, ray: Ray) -> Option<RaycastHit> {
         let delta = (ray.end - ray.start).unit();
        
         let a = delta.dot(delta);
@@ -338,12 +336,10 @@ impl SceneObject for Sphere
 
         let mut hit: Option<RaycastHit> = None;
 
-        if dsc >= 0.0
-        {
+        if dsc >= 0.0 {
             let t = (- b - dsc.sqrt()) / (2.0 * a);
             let point = ray.start + (delta * t);
-            if (point - ray.start).dot(delta) > 0.0 //check that sphere is not behind ray
-            {
+            if (point - ray.start).dot(delta) > 0.0 { //check that sphere is not behind ray
                 let normal = (point - self.center)/self.radius;
                 hit = Some(RaycastHit::new(point, normal, t, self.material));
             }
@@ -353,15 +349,12 @@ impl SceneObject for Sphere
 }
 impl SceneObject for Floor
 {
-    fn raycast(&self, ray: Ray) -> Option<RaycastHit>
-    {
+    fn raycast(&self, ray: Ray) -> Option<RaycastHit> {
         let dir = (ray.end - ray.start).unit();
-        if dir.y >= 0.0
-        {
+        if dir.y >= 0.0 {
             return None;
         }
-        else
-        {
+        else {
             let t = (self.y - ray.start.y) / dir.y;
             let point = dir * t + ray.start;
 
