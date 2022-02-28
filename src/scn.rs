@@ -61,7 +61,7 @@ pub fn generate_default() -> Scene
         Material::new(Color::new(255, 0, 0, 255),false),
     );
     //let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(tri1),Box::new(sphere2)];
-    let mut objects: Vec<Arc<dyn SceneObject + Send + Sync>> = vec![Arc::new(floor),Arc::new(sphere2),Arc::new(sphere1),Arc::new(sphere3),Arc::new(sphere4),Arc::new(sphere5)];
+    let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = vec![Box::new(floor),Box::new(sphere2),Box::new(sphere1),Box::new(sphere3),Box::new(sphere4),Box::new(sphere5)];
     objects.append(&mut read_obj("teapot1.obj", Material::new(Color::new(100,100,100,255),true)));
 
     let lights: Vec<Light> = vec![Light::Point(light1)];
@@ -81,12 +81,12 @@ pub fn generate_default() -> Scene
 }
 
 
-fn read_obj(filename: &str, material: Material) -> Vec<Arc<dyn SceneObject + Send + Sync>>
+fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject + Send + Sync>>
 {
     println!("\nloading file \"{}\"...",filename);
     let mut verts: Vec<Vec3> = Vec::new();
     let mut norms: Vec<Vec3> = Vec::new();
-    let mut tris: Vec<Arc<dyn SceneObject + Send + Sync>> = Vec::new();
+    let mut tris: Vec<Box<dyn SceneObject + Send + Sync>> = Vec::new();
     let contents = fs::read_to_string(filename).unwrap();
     {
         for line in contents.lines()
@@ -132,12 +132,12 @@ fn read_obj(filename: &str, material: Material) -> Vec<Arc<dyn SceneObject + Sen
                         n.push( ind[2].parse::<usize>().unwrap()-1 );
                     }
                 }
-                tris.push( Arc::new(Tri::new(verts[i[0]],verts[i[1]],verts[i[2]],
+                tris.push( Box::new(Tri::new(verts[i[0]],verts[i[1]],verts[i[2]],
                                              norms[n[0]],norms[n[1]],norms[n[2]],
                                              material )) );
                 if i.len() > 3 //quad
                 {
-                    tris.push( Arc::new(Tri::new(verts[i[0]],verts[i[2]],verts[i[3]],
+                    tris.push( Box::new(Tri::new(verts[i[0]],verts[i[2]],verts[i[3]],
                                                  norms[n[0]],norms[n[2]],norms[n[3]],
                                                  material )) );
                 }

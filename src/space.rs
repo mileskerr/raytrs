@@ -1,4 +1,3 @@
-use fast_inv_sqrt::InvSqrt64;
 use std::ops::Mul;
 use std::ops::Add;
 use std::ops::Sub;

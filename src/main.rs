@@ -4,6 +4,8 @@ use std::env;
 use std::fs::File;
 use std::time::Instant;
 use std::io::BufWriter;
+use std::mem::{self, MaybeUninit};
+
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -13,11 +15,12 @@ mod space;
 
 pub use space::*;
 
-const WIDTH:  usize = 300;
-const HEIGHT: usize = 300;
-const THREADS: usize = 8;
+const WIDTH:  usize = 256;
+const HEIGHT: usize = 256;
+const THREADS: usize = 16;
 
-const RAYS_PER_THREAD: usize = (WIDTH*HEIGHT)/THREADS;
+const NUM_PIXELS: usize = WIDTH * HEIGHT;
+const PIXELS_PER_THREAD: usize = NUM_PIXELS/THREADS;
 
 fn main()
 {
@@ -26,13 +29,17 @@ fn main()
         .expect("Expected a filename to output to.");
 
     let scene: Scene = scn::generate_default();    
+
+    println!("rendering...   ");
+    let t0 = Instant::now();
     let pixels = scene.render();
+    println!("finished rendering in {} secs", t0.elapsed().as_secs());
 
     write_file(pixels, path);
 
 }
 
-fn write_file(pixels: [Color;WIDTH*HEIGHT], filepath: String)
+fn write_file(pixels: Vec<Color>, filepath: String)
 {
     let file = File::create(filepath).unwrap();
     let ref mut w = BufWriter::new(file);
@@ -44,7 +51,7 @@ fn write_file(pixels: [Color;WIDTH*HEIGHT], filepath: String)
     let mut writer = encoder.write_header().unwrap();
 
     let mut data = [0;WIDTH*HEIGHT*3];
-    for i in 0..WIDTH*HEIGHT
+    for i in 0..NUM_PIXELS
     {
         let j = i * 3;
         data[j  ] = pixels[i].r;
@@ -58,91 +65,79 @@ fn write_file(pixels: [Color;WIDTH*HEIGHT], filepath: String)
 
 pub struct Scene
 {
-    objects: Vec<Arc<dyn SceneObject + Send + Sync>>,
+    objects: Vec<Box<dyn SceneObject + Send + Sync>>,
     lights: Vec<Light>,
     camera: Camera,
     world: World,
 }
 impl Scene
 {
-    fn new(objects: Vec<Arc<dyn SceneObject + Send + Sync>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
+    fn new(objects: Vec<Box<dyn SceneObject + Send + Sync>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
     {
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
-    fn render(self) -> [Color;WIDTH*HEIGHT]
-    {
-        let t0 = Instant::now();
+    fn render(self) -> Vec<Color> {
 
-        let self_arc = Arc::new(self);
-        let self1 = Arc::clone(&self_arc);
-        let rays = self1.camera.rays();
+        let scene = Arc::new(self);
+        let dirs = Arc::new(scene.camera.dirs());
+        let camera_origin = scene.camera.origin;
+        let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::new();
+        let mut handles = Vec::new();
 
-        let mut comp_pixels: Arc<Mutex<[Color;WIDTH*HEIGHT]>> = Arc::new(Mutex::new([self1.world.color;WIDTH*HEIGHT]));
-        let mut comp_depth_buffer: Arc<Mutex<[f64;WIDTH*HEIGHT]>> = Arc::new(Mutex::new([1000.0;WIDTH*HEIGHT]));
-       
-        println!("rendering...   ");
-        let mut object_index = 0;
-        for object in &self1.objects
-        {
-            print!("\x1b[s{}/{}\x1b[u",object_index,&self1.objects.len());
-            object_index += 1;
+        for i in 0..THREADS {
+            pixels.push(Arc::new(Mutex::new(Vec::new())));
+            let pixels = Arc::clone(&pixels[i]);
+            //let objects = Arc::clone(&objects);
+            let dirs = Arc::clone(&dirs);
+            let scene = Arc::clone(&scene);
 
-            let mut handles = Vec::new();
-            
-            for i in 0..THREADS
-            {
-                let rays_vec = Arc::clone(&rays[i]);
-                let obj_clone = Arc::clone(&object);
-                let self_clone = Arc::clone(&self_arc);
-                let comp_pixels_clone = Arc::clone(&comp_pixels);
-                let comp_db_clone = Arc::clone(&comp_depth_buffer);
-
-
-                let handle = thread::spawn(move ||
-                {
-                    //let mut pixels: [Color;RAYS_PER_THREAD] = [self_clone.world.color;RAYS_PER_THREAD];
-                    //let mut depth_buffer: [f64;RAYS_PER_THREAD] = [1000.0;RAYS_PER_THREAD];
-                    for j in 0..RAYS_PER_THREAD
-                    {
-                        let hit = obj_clone.raycast(rays_vec[j]);
-                        if hit.is_some()
-                        {
-                            let db = &mut comp_db_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)];
-                            if hit.unwrap().depth < *db
-                            {
-                                *db = hit.unwrap().depth;
-                                if hit.unwrap().material.reflective
-                                {
-                                    comp_pixels_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)] =
-                                        self_clone.shade_reflective(rays_vec[j],hit.unwrap());
-                                } else
-                                {
-                                    comp_pixels_clone.lock().unwrap()[j + (i * RAYS_PER_THREAD)] =
-                                        self_clone.shade_diffuse(hit.unwrap());
+            let handle = thread::spawn(move || {
+                let mut pixels = pixels.lock().unwrap();
+                let mut depths = Vec::new();
+                for _ in 0..PIXELS_PER_THREAD { //solid black background first
+                    pixels.push(Color::new(0,0,0,255));
+                    depths.push(f64::MAX);
+                }
+                for object in &*scene.objects {
+                    for j in 0..PIXELS_PER_THREAD {
+                        let ray = Ray::new(camera_origin, dirs[(i * PIXELS_PER_THREAD) + j] + camera_origin);
+                        let hit = object.raycast(ray);
+                        if hit.is_some() {
+                            let hit = hit.unwrap();
+                            if hit.depth < depths[j] {
+                                depths[j] = hit.depth;
+                                if hit.material.reflective {
+                                    pixels[j] = scene.shade_reflective(ray,hit);
+                                } else {
+                                    pixels[j] = scene.shade_diffuse(hit);
                                 }
                             }
                         }
                     }
-                });
-                handles.push(handle);
-            }
-
-            for handle in handles
-            { handle.join().unwrap(); }
+                }
+            });
+            handles.push(handle);
         }
-        println!("finished rendering in {} secs", t0.elapsed().as_secs());
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let mut output = Vec::new(); //merge all the thread vectors into a single vector
+        for thread in pixels {
+            for pixel in thread.lock().unwrap().clone() {
+                output.push(pixel);
+            }
+        }
+
+        return output;
        
-        return *comp_pixels.lock().unwrap();
     }
     fn shade_diffuse(&self, hit: RaycastHit) -> Color
     {
         let mut lightness = 0.0;
-        for light in &self.lights
-        {
-            match light
-            {
-                Light::Point(point_light) =>
-                {
+        for light in &self.lights {
+            match light {
+                Light::Point(point_light) => {
                     //diffuse shading
                     let light_vector = point_light.origin - hit.point;
                     let light_dir = light_vector / light_vector.magn();
@@ -151,12 +146,10 @@ impl Scene
                     { l0 = 0.0 }
                     let mut new_light = l0 * l0;
                     //shadows
-                    for i in 0..self.objects.len()
-                    {
+                    for i in 0..self.objects.len() {
                         let ray = Ray::new( hit.point, point_light.origin);
                         let hit1 = &self.objects[i].raycast( ray );
-                        if hit1.is_some()
-                        {
+                        if hit1.is_some() {
                             new_light = 0.0;
                         }
                     }
@@ -168,12 +161,10 @@ impl Scene
         let pixel = hit.material.color * lightness;
         return pixel;
     }
-    fn shade_reflective(&self, ray: Ray, hit: RaycastHit) -> Color
-    {
+    fn shade_reflective(&self, ray: Ray, hit: RaycastHit) -> Color {
         let mut pixel = self.world.color;
 
-        for object_index_1 in 0..self.objects.len()
-        {
+        for object_index_1 in 0..self.objects.len() {
             let new_ray = Ray::new(hit.point, (ray.start - ray.end).unit().reflect(hit.normal) + hit.point);
             let hit1 = &self.objects[object_index_1].raycast( new_ray );
             if hit1.is_some()
@@ -212,50 +203,31 @@ impl Camera
         { origin: origin, upper_left: upper_left, upper_right: upper_right,
         lower_left: lower_left, lower_right: lower_right, }
     }*/
-    fn rays(&self) -> Vec<Arc<Vec<Ray>>>
+    fn dirs(&self) -> Vec<Vec3>
     {
-        let mut non_arc = Vec::new();
         let mut dir = self.upper_left;
-
-        let num_pixels = WIDTH * HEIGHT;
-
-        for i in 0..THREADS
-        { 
-            non_arc.push(Vec::new());
-        }
 
         let dx = (self.upper_right.x - self.upper_left.x)/(WIDTH as f64);
         let dy = (self.upper_right.y - self.lower_right.y)/(HEIGHT as f64);
 
-        let mut thread_index = 0;
+        let mut dirs = Vec::new();
 
-        for y in 0..HEIGHT
-        {
+        for y in 0..HEIGHT {
             dir.x = self.upper_left.x;
-            for x in 0..WIDTH
-            {
-                if (WIDTH * y + x) >= RAYS_PER_THREAD * thread_index + RAYS_PER_THREAD
-                { thread_index += 1; }
-                let ray_end = dir.unit() + self.origin;
-                non_arc[thread_index].push(Ray::new(self.origin, ray_end));
+            for x in 0..WIDTH {
+                dirs.push(dir);
                 dir.x += dx;
             }
             dir.y -= dy;
         }
-        let mut output = Vec::new();
-        for i in 0..THREADS
-        {
-            output.push(Arc::new(non_arc[i].clone()));
-        }
-        return output;
+        return dirs;
+
     }
 }
 
 
-impl SceneObject for Tri
-{
-    fn raycast(&self, ray: Ray) -> Option<RaycastHit>
-    {
+impl SceneObject for Tri {
+    fn raycast(&self, ray: Ray) -> Option<RaycastHit> {
         //Moller-Trumbore algorithm:
         const EPSILON: f64 = 0.000001;
         
