@@ -21,6 +21,7 @@ pub use space::*;
 const WIDTH:  usize = 256;
 const HEIGHT: usize = 256;
 const THREADS: usize = 16;
+const EXPOSURE: f64 = 30.0;
 
 const NUM_PIXELS: usize = WIDTH * HEIGHT;
 const PIXELS_PER_THREAD: usize = NUM_PIXELS/THREADS;
@@ -32,9 +33,9 @@ fn main() {
         .expect("Expected a filename to output to.");
 
 
-    print!("{}{}{}{}",
-        "\x1b[?47h", //save screen
+    print!(" {}{}{}{}",
         "\x1b[s",    //save cursor
+        "\x1b[?47h", //save screen
         "\x1b[?25l", //hide cursor
         "\x1b[H"     //clear screen
     ); 
@@ -49,7 +50,7 @@ fn main() {
         "\x1b[?47l", //restore screen
         "\x1b[u",    //restore cursor
         "\x1b[?25h", //show cursor
-        "\ndone rendering in ", t0.elapsed().as_secs(), " seconds\n"
+        "\n\ndone rendering in ", t0.elapsed().as_secs(), " seconds\n"
     );
 
 }
@@ -164,11 +165,12 @@ impl Scene
                 Light::Point(point_light) => {
                     //diffuse shading
                     let light_vector = point_light.origin - hit.point;
-                    let light_dir = light_vector / light_vector.magn();
-                    let mut l0 = (light_dir.dot(hit.normal)+0.1) * point_light.strength;
+                    let light_distance = light_vector.magn();
+                    let light_dir = light_vector / light_distance;
+                    let mut l0 = (light_dir.dot(hit.normal)) * point_light.strength;
                     if l0 < 0.0 //clamp because we dont want negative values messing things up
                     { l0 = 0.0 }
-                    let mut new_light = l0 * l0;
+                    let mut new_light = ((l0 * l0) * EXPOSURE) / (light_distance * light_distance);
                     //shadows
                     for i in 0..self.objects.len() {
                         let ray = Ray::new( hit.point, point_light.origin);

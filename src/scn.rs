@@ -9,7 +9,7 @@ pub fn generate_default() -> Scene
 {
     let sphere1 = Sphere::new
     (
-        Vec3::new(-1.2, 0.5, -1.0),
+        Vec3::new(-1.5, 0.5, -2.0),
         0.5,
         Material::new(Color::new(0, 0, 255, 255),false),
     );
@@ -33,13 +33,24 @@ pub fn generate_default() -> Scene
     );
     let sphere5 = Sphere::new
     (
-        Vec3::new(0.5, 4.0, 5.0),
+        Vec3::new(2.0, 4.0, 5.0),
         2.5,
         Material::new(Color::new(0, 255, 0, 255),false),
     );
+    let sphere6 = Sphere::new
+    (
+        Vec3::new(-2.5, 3.0, 5.0),
+        2.0,
+        Material::new(Color::new(255, 255, 0, 255),false),
+    );
     let light1 = PointLight::new
     (
-        Vec3::new(0.0, 7.0, -4.0),
+        Vec3::new(-2.0, 7.0, -5.0),
+        1.0,
+    );
+    let light2 = PointLight::new
+    (
+        Vec3::new(2.0, 7.0, -2.0),
         1.0,
     );
     let floor = Floor::new
@@ -52,10 +63,18 @@ pub fn generate_default() -> Scene
         Color::new(0, 0, 0, 255),
         1.0,
     );
-    let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = vec![Box::new(floor),Box::new(sphere2),Box::new(sphere1),Box::new(sphere3),Box::new(sphere4),Box::new(sphere5)];
+    let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = vec![
+        Box::new(floor),
+        Box::new(sphere2),
+        Box::new(sphere1),
+        Box::new(sphere3),
+        Box::new(sphere4),
+        Box::new(sphere5),
+        Box::new(sphere6),
+    ];
     objects.append(&mut read_obj("teapot1.obj", Material::new(Color::new(100,100,100,255),true)));
 
-    let lights: Vec<Light> = vec![Light::Point(light1)];
+    let lights: Vec<Light> = vec![Light::Point(light1),Light::Point(light2)];
 
     let camera = Camera::new
     (
