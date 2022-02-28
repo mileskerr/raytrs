@@ -8,43 +8,35 @@ use std::fmt;
 
 
 #[derive(Clone,Copy,PartialEq)]
-pub struct Vec3
-{
+pub struct Vec3 {
     pub x: f64,
     pub y: f64,
     pub z: f64,
 }
-impl Vec3
-{
+impl Vec3 {
     pub fn new(x: f64, y: f64, z: f64) -> Vec3
     { Vec3{x: x, y: y, z: z} }
-    pub fn dot(self, other: Vec3) -> f64
-    {
+    pub fn dot(self, other: Vec3) -> f64 {
         self.x * other.x +
         self.y * other.y +
         self.z * other.z
     }
-    pub fn cross(self, other: Vec3) -> Vec3
-    {
+    pub fn cross(self, other: Vec3) -> Vec3 {
         let x = self.y * other.z - self.z * other.y;
         let y = self.z * other.x - self.x * other.z;
         let z = self.x * other.y - self.y * other.x;
         Vec3::new(x,y,z)
     }
-    pub fn reflect(self, other: Vec3) -> Vec3
-    {
+    pub fn reflect(self, other: Vec3) -> Vec3 {
         (other * (other.dot(self))) * 2.0 - self
     }
-    pub fn magn(&self) -> f64
-    {
+    pub fn magn(&self) -> f64 {
         self.dot(*self).sqrt()
     }
-    pub fn unit(self) -> Vec3
-    {
+    pub fn unit(self) -> Vec3 {
         self/self.magn()
     }
-    pub fn to_color(self) -> Color
-    {
+    pub fn to_color(self) -> Color {
         let r: u8 = (self.x * 128.0 + 128.0) as u8;
         let g: u8 = (self.y * 128.0 + 128.0) as u8;
         let b: u8 = (self.z * 128.0 + 128.0) as u8;
@@ -52,10 +44,8 @@ impl Vec3
     }
 }
 
-impl fmt::Debug for Vec3
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
-    {
+impl fmt::Debug for Vec3 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("")
          .field("x", &self.x)
          .field("y", &self.y)
@@ -63,22 +53,18 @@ impl fmt::Debug for Vec3
          .finish()
     }
 }
-impl Mul<f64> for Vec3
-{
+impl Mul<f64> for Vec3 {
     type Output = Vec3;
-    fn mul(self, other: f64) -> Vec3
-    {
+    fn mul(self, other: f64) -> Vec3 {
         let x = self.x * other;
         let y = self.y * other;
         let z = self.z * other;
         Vec3::new(x,y,z)
     }
 }
-impl Div<f64> for Vec3
-{
+impl Div<f64> for Vec3 {
     type Output = Vec3;
-    fn div(self, other: f64) -> Vec3
-    {
+    fn div(self, other: f64) -> Vec3 {
         let factor = 1.0 / other;
         let x = self.x * factor;
         let y = self.y * factor;
@@ -86,11 +72,9 @@ impl Div<f64> for Vec3
         Vec3::new(x,y,z)
     }
 }
-impl Add for Vec3
-{
+impl Add for Vec3 {
     type Output = Vec3;
-    fn add(self, other: Vec3) -> Vec3
-    {
+    fn add(self, other: Vec3) -> Vec3 {
         let x = self.x + other.x;
         let y = self.y + other.y;
         let z = self.z + other.z;
@@ -99,24 +83,19 @@ impl Add for Vec3
 }
 
 #[derive(Clone,Copy,Debug)]
-pub struct Matrix3
-{
+pub struct Matrix3 {
     pub a: Vec3,
     pub b: Vec3,
     pub c: Vec3,
 }
-impl Matrix3
-{
-    pub fn new( a: Vec3, b: Vec3, c: Vec3) -> Matrix3
-    {
+impl Matrix3 {
+    pub fn new( a: Vec3, b: Vec3, c: Vec3) -> Matrix3 {
         Matrix3 { a: a, b: b, c: c }
     }
 }
-impl Mul<Vec3> for Matrix3
-{
+impl Mul<Vec3> for Matrix3 {
     type Output = Vec3;
-    fn mul(self, other: Vec3) -> Vec3
-    {
+    fn mul(self, other: Vec3) -> Vec3 {
         let x = self.a * other.x;
         let y = self.b * other.y;
         let z = self.c * other.z;
@@ -125,33 +104,27 @@ impl Mul<Vec3> for Matrix3
 }
 
 #[derive(Clone,Copy,Debug)]
-pub struct Ray
-{
+pub struct Ray {
     pub start: Vec3,
     pub end: Vec3,
 }
-impl Ray
-{
+impl Ray {
     pub fn new(start: Vec3, end: Vec3) -> Ray
     { Ray { start: start, end: end } }
 }
 
-impl Sub for Vec3
-{
+impl Sub for Vec3 {
     type Output = Vec3;
-    fn sub(self, other: Vec3) -> Vec3
-    {
+    fn sub(self, other: Vec3) -> Vec3 {
         let x = self.x - other.x;
         let y = self.y - other.y;
         let z = self.z - other.z;
         Vec3::new(x,y,z)
     }
 }
-impl Neg for Vec3
-{
+impl Neg for Vec3 {
     type Output = Vec3;
-    fn neg(self) -> Vec3
-    {
+    fn neg(self) -> Vec3 {
         let x = -self.x;
         let y = -self.y;
         let z = -self.z;
@@ -160,23 +133,19 @@ impl Neg for Vec3
 }
 
 #[derive(Clone,Copy,Debug)]
-pub struct Color
-{
+pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
     pub a: u8,
 }
-impl Color
-{
+impl Color {
     pub fn new(r: u8, g: u8, b: u8, a: u8) -> Color
     { Color{ r: r, g: g, b: b, a: a } }
 }
-impl Add for Color
-{
+impl Add for Color {
     type Output = Color;
-    fn add(self, other: Color) -> Color
-    {
+    fn add(self, other: Color) -> Color {
         let mut r = self.r as u16 + other.r as u16;
         let mut g = self.g as u16 + other.g as u16;
         let mut b = self.b as u16 + other.b as u16;
@@ -190,8 +159,7 @@ impl Add for Color
         Color::new(r as u8, g as u8, b as u8, a as u8)
     }
 }
-impl Mul<f64> for Color
-{
+impl Mul<f64> for Color {
     type Output = Color;
     fn mul(self, other: f64) -> Color {
 
@@ -207,68 +175,57 @@ impl Mul<f64> for Color
         Color::new(r as u8, g as u8, b as u8, self.a)
     }
 }
-pub struct Camera
-{
+pub struct Camera {
     pub origin: Vec3,
     pub upper_left: Vec3,
     pub upper_right: Vec3,
     pub lower_left: Vec3,
     pub lower_right: Vec3,
 }
-pub struct World
-{
+pub struct World {
     pub color: Color,
     pub strength: f64,
 }
-impl World
-{
-    pub fn new(color: Color, strength: f64) -> World
-    {
+impl World {
+    pub fn new(color: Color, strength: f64) -> World {
         World { color: color, strength: strength }
     }
 }
 
 
-pub struct PointLight
-{
+pub struct PointLight {
     pub origin: Vec3,
     pub strength: f64,
 }
-impl PointLight
-{
+impl PointLight {
     pub fn new(origin: Vec3, strength:f64) -> PointLight
     { PointLight { origin: origin, strength: strength } }
 }
 
 
 
-pub enum Light
-{
+pub enum Light {
     Point(PointLight),
     Sun(SunLight),
 }
 //TODO: add directional lighting
-pub struct SunLight
-{
+pub struct SunLight {
     //direction: Vec3,
     //strength: f64,
 }
-pub struct Tri
-{
+pub struct Tri {
     pub verts: (Vec3,Vec3,Vec3),
     pub vx_normals: (Vec3,Vec3,Vec3),
     pub material: Material
 }
 impl Tri
 {
-    pub fn new(a: Vec3,    b: Vec3,    c: Vec3,
-               vn_a: Vec3, vn_b: Vec3, vn_c: Vec3,
-               material: Material) -> Tri
-    { 
+    pub fn new (
+        a: Vec3,    b: Vec3,    c: Vec3, vn_a: Vec3, vn_b: Vec3, vn_c: Vec3, material: Material
+    ) -> Tri { 
         Tri { verts: ( a, b, c ), vx_normals: ( vn_a, vn_b, vn_c ), material: material}
     }
-    pub fn auto_normal(a: Vec3, b: Vec3, c: Vec3, material: Material) -> Tri
-    { 
+    pub fn auto_normal(a: Vec3, b: Vec3, c: Vec3, material: Material) -> Tri { 
         let edge0 = b - a;
         let edge1 = c - a;
         let normal = edge0.cross(edge1).unit();
@@ -277,56 +234,47 @@ impl Tri
 }
 
 
-pub struct Sphere
-{
+pub struct Sphere {
     pub center: Vec3,
     pub radius: f64,
     pub material: Material,
 }
-impl Sphere
-{
+impl Sphere {
     pub fn new(center: Vec3, radius: f64, material: Material) -> Sphere
     { Sphere { center: center, radius: radius, material: material } }
 }
 
 
 #[derive(Clone,Copy)]
-pub struct Material
-{
+pub struct Material {
     pub color: Color,
     pub reflective: bool,
 }
-impl Material
-{
-    pub fn new(color: Color, reflective: bool) -> Material
-    {
+impl Material {
+    pub fn new(color: Color, reflective: bool) -> Material {
         Material { color: color, reflective: reflective }
     }
 }
 
 
 #[derive(Clone,Copy)]
-pub struct RaycastHit
-{
+pub struct RaycastHit {
     pub point: Vec3,
     pub normal: Vec3,
     pub depth: f64,
     pub material: Material,
 }
-impl RaycastHit
-{
+impl RaycastHit {
     pub fn new(point: Vec3, normal: Vec3, depth: f64, material: Material) -> RaycastHit
     { RaycastHit { point: point, normal: normal, depth: depth, material: material } }
 }
 
 
-pub struct Floor
-{
+pub struct Floor {
     pub y: f64,
     pub material: Material
 }
-impl Floor
-{
+impl Floor {
     pub fn new(y: f64, material: Material) -> Floor
     { Floor { y: y, material: material } }
 }

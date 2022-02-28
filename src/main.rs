@@ -202,12 +202,13 @@ impl Scene
     }
 }
 fn progress_bar(value: usize,max: usize) -> String {
-    const LEN: usize = 32;
+    const LEN: usize  = 32;
     const START: char = '[';
-    const END: char = ']';
-    const FILL: char = '#';
-    const EMPT: char = '-';
-    const DONE: &str = "[              DONE              ]";
+    const END: char   = ']';
+    const FILL: char  = '#';
+    const DIV: char   = '#';
+    const EMPT: char  = '-';
+    const DONE: &str  = "[              DONE              ]";
 
     if value >= max
     { return String::from(DONE); }
@@ -217,10 +218,12 @@ fn progress_bar(value: usize,max: usize) -> String {
 
     let mut bar = String::with_capacity(LEN + 2);
 
+    let length = if amount > 0 { amount - 1 } else { 0 };
     bar.push(START);
-    for _ in 0..amount {
+    for _ in 0..length {
         bar.push(FILL);
     }
+    if amount > 0 { bar.push(DIV); }
     for _ in 0..empty {
         bar.push(EMPT);
     }

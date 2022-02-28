@@ -1,6 +1,5 @@
 /target
-/cargo.toml
-
+/Cargo.lock
 /.gitignore
 
 /*.png
