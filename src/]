@@ -1,10 +1,12 @@
 extern crate png;
+extern crate termion;
+use termion::cursor::DetectCursorPos;
 
 use std::thread;
 use std::env;
 use std::fs::File;
 use std::time::Instant;
-use std::io::BufWriter;
+use std::io::{BufWriter,stdout};
 
 //use crate::png;
 
@@ -26,31 +28,19 @@ const NUM_PIXELS: usize = WIDTH * HEIGHT;
 const PIXELS_PER_THREAD: usize = NUM_PIXELS/THREADS;
 
 
-fn main() {
+fn main()
+{
     let path = env::args()
         .nth(1)
         .expect("Expected a filename to output to.");
 
-
-    print!("{}{}{}{}",
-        "\x1b[?47h", //save screen
-        "\x1b[s",    //save cursor
-        "\x1b[?25l", //hide cursor
-        "\x1b[H"     //clear screen
-    ); 
-
     let scene: Scene = scn::generate_default();    
+
     let t0 = Instant::now();
     let pixels = scene.render();
+    println!("finished rendering in {} secs", t0.elapsed().as_secs());
 
     write_file(pixels, path);
-    
-    print!("{}{}{}{}{}{}",
-        "\x1b[?47l", //restore screen
-        "\x1b[u",    //restore cursor
-        "\x1b[?25h", //show cursor
-        "\n\ndone rendering in ", t0.elapsed().as_secs(), " seconds\n"
-    );
 
 }
 
@@ -94,8 +84,10 @@ impl Scene
     fn render(self) -> Vec<Color> {
         //TODO: add with capacity for the new vectors
 
+        println!("preparing...   ");
 
-        println!("preparing... ");
+        let mut stdout = stdout();
+        let cursor_pos = stdout.cursor_pos();
 
         let scene = Arc::new(self);
         let dirs = Arc::new(scene.camera.dirs());
@@ -103,11 +95,13 @@ impl Scene
         let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::new();
         let mut handles = Vec::new();
 
-        println!("\nrendering...");
+        println!("rendering...   ");
+        println!("\x1b[s");
 
         for i in 0..THREADS {
             pixels.push(Arc::new(Mutex::new(Vec::new())));
             let pixels = Arc::clone(&pixels[i]);
+            //let objects = Arc::clone(&objects);
             let dirs = Arc::clone(&dirs);
             let scene = Arc::clone(&scene);
 
@@ -120,7 +114,7 @@ impl Scene
                     depths.push(f64::MAX);
                 }
                 for k in 0..scene.objects.len() {
-                    print!("\x1b[{};0fthread {}: {}",i+7,i,progress_bar(k+1, scene.objects.len())); //progress bar
+                    print!("\x1b[{};0f thread {}: {}",cursor_pos+i,i,progress_bar(k, scene.objects.len()));
                     for j in 0..PIXELS_PER_THREAD {
                         let ray = Ray::new(camera_origin, dirs[(i * PIXELS_PER_THREAD) + j] + camera_origin);
                         let hit = scene.objects[k].raycast(ray);
@@ -199,15 +193,11 @@ impl Scene
     }
 }
 fn progress_bar(value: usize,max: usize) -> String {
-    const LEN: usize = 32;
+    const LEN: usize = 16;
     const START: char = '[';
     const END: char = ']';
     const FILL: char = '#';
     const EMPT: char = '-';
-    const DONE: &str = "[              DONE              ]";
-
-    if value >= max
-    { return String::from(DONE); }
 
     let amount = if max == 0 { 0 } else { (value * LEN)/max };
     let empty = LEN - amount;
