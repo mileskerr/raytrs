@@ -99,8 +99,8 @@ impl Scene
         let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::with_capacity(THREADS);
         let mut handles = Vec::with_capacity(THREADS);
 
-        println!("\nrendering...");
-        let cursor_offset = 7; //legit detecting cursor position is really hard. just hardcoding it
+        println!("rendering...");
+        let cursor_offset = 5; //legit detecting cursor position is really hard. just hardcoding it
 
         for i in 0..THREADS {
             let formatted_i = if i > 9 { i.to_string() + ":" } else { i.to_string() + ": " };
@@ -240,10 +240,10 @@ impl Camera
         let aspect = (HEIGHT as f64) / (WIDTH as f64);
         let half = aspect/2.0;
 
-        let upper_left  = view_matrix * Vec3::new(-half, 0.5,1.0);
-        let upper_right = view_matrix * Vec3::new(half,  0.5,1.0);
-        let lower_left  = view_matrix * Vec3::new(-half,-0.5,1.0);
-        let lower_right = view_matrix * Vec3::new(half, -0.5,1.0);
+        let upper_left  = view_matrix * Vec3::new(-half, 0.5,length);
+        let upper_right = view_matrix * Vec3::new(half,  0.5,length);
+        let lower_left  = view_matrix * Vec3::new(-half,-0.5,length);
+        let lower_right = view_matrix * Vec3::new(half, -0.5,length);
 
         Camera { origin: origin, upper_left: upper_left, upper_right: upper_right,
         lower_left: lower_left, lower_right: lower_right, }
@@ -263,9 +263,9 @@ impl Camera
 
         let mut dirs = Vec::with_capacity(NUM_PIXELS);
 
-        for y in 0..HEIGHT {
+        for _y in 0..HEIGHT {
             dir.x = self.upper_left.x;
-            for x in 0..WIDTH {
+            for _x in 0..WIDTH {
                 dirs.push(dir);
                 dir.x += dx;
             }

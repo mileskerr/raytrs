@@ -1,5 +1,4 @@
 use std::fs;
-use std::sync::Arc;
 
 
 use crate::*;
@@ -53,14 +52,6 @@ pub fn generate_default() -> Scene
         Color::new(0, 0, 0, 255),
         1.0,
     );
-    let tri1 = Tri::auto_normal
-    (
-        Vec3::new(1.0,-2.0,7.0),
-        Vec3::new(1.0,-2.0,9.0),
-        Vec3::new(0.0, -2.0,9.0),
-        Material::new(Color::new(255, 0, 0, 255),false),
-    );
-    //let objects: Vec<Box<dyn SceneObject>> = vec![Box::new(tri1),Box::new(sphere2)];
     let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = vec![Box::new(floor),Box::new(sphere2),Box::new(sphere1),Box::new(sphere3),Box::new(sphere4),Box::new(sphere5)];
     objects.append(&mut read_obj("teapot1.obj", Material::new(Color::new(100,100,100,255),true)));
 
@@ -83,7 +74,7 @@ pub fn generate_default() -> Scene
 
 fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject + Send + Sync>>
 {
-    println!("\nloading file \"{}\"...",filename);
+    println!("loading file \"{}\"...",filename);
     let mut verts: Vec<Vec3> = Vec::new();
     let mut norms: Vec<Vec3> = Vec::new();
     let mut tris: Vec<Box<dyn SceneObject + Send + Sync>> = Vec::new();

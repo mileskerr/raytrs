@@ -247,10 +247,11 @@ pub enum Light
     Point(PointLight),
     Sun(SunLight),
 }
+//TODO: add directional lighting
 pub struct SunLight
 {
-    direction: Vec3,
-    strength: f64,
+    //direction: Vec3,
+    //strength: f64,
 }
 pub struct Tri
 {
