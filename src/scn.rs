@@ -1,90 +1,133 @@
+extern crate serde_json;
+extern crate serde;
 use std::fs;
 
+use self::serde::Deserialize;
 
 use crate::*;
 
 
 
 pub fn generate_default() -> Scene {
-    let sphere1 = Sphere::new (
-        Vec3::new(-1.5, 0.5, -2.0),
-        0.5,
-        Material::new(Color::new(0, 0, 255, 255),false),
-    );
-    let sphere2 = Sphere::new (
-        Vec3::new(-1.0, 0.75, -4.0),
-        0.75,
-        Material::new(Color::new(0, 255, 255, 255),false),
-    );
-    let sphere3 = Sphere::new (
-        Vec3::new(0.5, 0.5, -3.0),
-        0.5,
-        Material::new(Color::new(255, 0, 255, 255),false),
-    );
-    let sphere4 = Sphere::new (
-        Vec3::new(3.0, 1.0, -2.0),
-        1.0,
-        Material::new(Color::new(255, 255, 0, 255),false),
-    );
-    let sphere5 = Sphere::new (
-        Vec3::new(2.0, 4.0, 5.0),
-        2.5,
-        Material::new(Color::new(0, 255, 0, 255),false),
-    );
-    let sphere6 = Sphere::new (
-        Vec3::new(-2.5, 3.0, 5.0),
-        2.0,
-        Material::new(Color::new(255, 255, 0, 255),false),
-    );
-    let light1 = PointLight::new (
-        Vec3::new(-2.0, 7.0, -5.0),
-        1.0,
-    );
-    let light2 = PointLight::new (
-        Vec3::new(2.0, 7.0, -2.0),
-        1.0,
-    );
-    let floor = Floor::new (
-        0.0,
-        Material::new(Color::new(255,255,255,255),false),
-    );
-    let world = World::new (
-        Color::new(0, 0, 0, 255),
-        1.0,
-    );
-    let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = vec![
-        Box::new(floor),
-        Box::new(sphere2),
-        Box::new(sphere1),
-        Box::new(sphere3),
-        Box::new(sphere4),
-        Box::new(sphere5),
-        Box::new(sphere6),
-    ];
-    objects.append(&mut read_obj("teapot1.obj", Material::new(Color::new(100,100,100,255),true)));
+    //let contents = fs::read_to_string(filename).unwrap();
+    read_json(DEFAULT_JSON)
+}
 
-    let lights: Vec<Light> = vec![Light::Point(light1),Light::Point(light2)];
+fn read_json(contents: &str) -> Scene {
+    let scn: IpScene = serde_json::from_str(contents).unwrap();
+    scn.to_scene()
+}
 
-    let camera = Camera::new (
-        //origin
-        Vec3::new(0.0, 3.0, -7.0),
-        //direction
-        Vec3::new(0.0, -0.2, 1.0),
-        //focal length
-        1.0,
-    );
-    
-    Scene::new(objects,lights,camera,world)
-
+impl IpScene {
+    fn to_scene(self) -> Scene {
+        let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = Vec::new();
+        let mut lights = Vec::new();
+        for object in self.objects {
+            match object {
+                IpObject::sphere(sphere) => {
+                    objects.push(Box::new(Sphere::new(
+                        sphere.center,
+                        sphere.radius,
+                        Material::new(sphere.color, sphere.reflective),
+                    )));
+                }
+                IpObject::floor(floor) => {
+                    objects.push(Box::new(Floor::new(
+                        floor.y,
+                        Material::new(floor.color, floor.reflective),
+                    )));
+                }
+                IpObject::inline_obj(inline_obj) => {
+                    let mut tris = read_obj(
+                        inline_obj.contents.as_str(),
+                        Material::new(inline_obj.color,inline_obj.reflective),
+                    );
+                    objects.append(&mut tris);
+                }
+                IpObject::extern_obj(extern_obj) => {
+                    let mut tris = read_obj(
+                        fs::read_to_string(extern_obj.filename).unwrap().as_str(),
+                        Material::new(extern_obj.color,extern_obj.reflective),
+                    );
+                    objects.append(&mut tris);
+                }
+            }
+        }
+        for light in self.lights {
+            match light {
+                IpLight::point(pointlight) => {
+                    lights.push(Light::Point(pointlight));
+                }
+                _=> {}
+            }
+        }
+        let camera = Camera::new( 
+            self.camera.origin,
+            self.camera.direction,
+            self.camera.focal_length
+        );
+        let world = World::new(
+            self.background_color,
+            1.0,
+        );
+        Scene::new(objects,lights,camera,world)
+    }
+}
+#[derive(Deserialize)]
+struct IpScene {
+    objects: Vec<IpObject>,
+    lights: Vec<IpLight>,
+    camera: IpCamera,
+    background_color: Color,
+}
+#[derive(Deserialize)]
+enum IpObject {
+    sphere(IpSphere),
+    floor(IpFloor),
+    inline_obj(ObjInline),
+    extern_obj(ObjExtern),
+}
+#[derive(Deserialize)]
+enum IpLight {
+    point(PointLight),
+}
+#[derive(Deserialize)]
+struct IpCamera {
+    origin: Vec3,
+    direction: Vec3,
+    focal_length: f64,
+}
+#[derive(Deserialize)]
+struct IpSphere {
+    center: Vec3,
+    radius: f64,
+    reflective: bool,
+    color: Color,
+}
+#[derive(Deserialize)]
+struct IpFloor {
+    y: f64,
+    color: Color,
+    reflective: bool,
+}
+#[derive(Deserialize)]
+struct ObjInline {
+    color: Color,
+    reflective: bool,
+    contents: String,
+}
+#[derive(Deserialize)]
+struct ObjExtern {
+    color: Color,
+    reflective: bool,
+    filename: String,
 }
 
 
-fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject + Send + Sync>> {
-    println!("loading file \"{}\"...",filename);
+fn read_obj(contents: &str, material: Material) -> Vec<Box<dyn SceneObject + Send + Sync>> {
     let mut verts: Vec<Vec3> = Vec::new();
     let mut norms: Vec<Vec3> = Vec::new();
     let mut tris: Vec<Box<dyn SceneObject + Send + Sync>> = Vec::new();
-    let contents = fs::read_to_string(filename).unwrap();
     
     for line in contents.lines() {
         let is_vert = line.find("v ");
@@ -139,3 +182,38 @@ fn read_obj(filename: &str, material: Material) -> Vec<Box<dyn SceneObject + Sen
     return tris;
 }
 
+const DEFAULT_JSON: &str = r#"
+{
+    "lights" : [
+        {
+            "point": {
+                "origin": { "x": 1, "y": 7, "z": -3 },
+                "strength": 1.5
+            }
+        }
+    ],
+    "camera" : {
+        "origin": { "x": 0, "y": 2, "z": -6 },
+        "direction": { "x": 0, "y": -0.1, "z": 1 },
+        "focal_length": 1
+    },
+    "background_color": { "r": 0, "g": 0, "b": 255, "a": 255 },
+    "objects" : [
+        {
+            "sphere": {
+                "center": { "x": 0, "y": 1.3, "z": 0 },
+                "radius": 1.3,
+                "reflective": false,
+                "color":  { "r": 255, "g": 0, "b": 0, "a": 255 }
+            }
+        },
+        {
+            "floor": {
+                "y": 0,
+                "reflective": false,
+                "color": { "r": 100, "g": 50, "b": 100, "a": 255 }
+            }
+        }
+    ]
+}
+"#;

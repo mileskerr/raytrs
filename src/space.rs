@@ -1,3 +1,5 @@
+extern crate serde;
+use self::serde::Deserialize;
 use std::ops::Mul;
 use std::ops::Add;
 use std::ops::Sub;
@@ -7,7 +9,7 @@ use std::fmt;
 
 
 
-#[derive(Clone,Copy,PartialEq)]
+#[derive(Deserialize,Clone,Copy,PartialEq)]
 pub struct Vec3 {
     pub x: f64,
     pub y: f64,
@@ -103,7 +105,7 @@ impl Mul<Vec3> for Matrix3 {
     }
 }
 
-#[derive(Clone,Copy,Debug)]
+#[derive(Deserialize,Clone,Copy,Debug)]
 pub struct Ray {
     pub start: Vec3,
     pub end: Vec3,
@@ -132,7 +134,7 @@ impl Neg for Vec3 {
     }
 }
 
-#[derive(Clone,Copy,Debug)]
+#[derive(Deserialize,Clone,Copy,Debug)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -175,6 +177,7 @@ impl Mul<f64> for Color {
         Color::new(r as u8, g as u8, b as u8, self.a)
     }
 }
+#[derive(Deserialize)]
 pub struct Camera {
     pub origin: Vec3,
     pub upper_left: Vec3,
@@ -182,6 +185,7 @@ pub struct Camera {
     pub lower_left: Vec3,
     pub lower_right: Vec3,
 }
+#[derive(Deserialize)]
 pub struct World {
     pub color: Color,
     pub strength: f64,
@@ -193,6 +197,7 @@ impl World {
 }
 
 
+#[derive(Deserialize)]
 pub struct PointLight {
     pub origin: Vec3,
     pub strength: f64,
@@ -204,15 +209,19 @@ impl PointLight {
 
 
 
+#[derive(Deserialize)]
+#[serde(untagged)]
 pub enum Light {
     Point(PointLight),
     Sun(SunLight),
 }
 //TODO: add directional lighting
+#[derive(Deserialize)]
 pub struct SunLight {
     //direction: Vec3,
     //strength: f64,
 }
+#[derive(Deserialize)]
 pub struct Tri {
     pub verts: (Vec3,Vec3,Vec3),
     pub vx_normals: (Vec3,Vec3,Vec3),
@@ -234,6 +243,7 @@ impl Tri
 }
 
 
+#[derive(Deserialize)]
 pub struct Sphere {
     pub center: Vec3,
     pub radius: f64,
@@ -245,7 +255,7 @@ impl Sphere {
 }
 
 
-#[derive(Clone,Copy)]
+#[derive(Deserialize,Clone,Copy)]
 pub struct Material {
     pub color: Color,
     pub reflective: bool,
@@ -269,7 +279,7 @@ impl RaycastHit {
     { RaycastHit { point: point, normal: normal, depth: depth, material: material } }
 }
 
-
+#[derive(Deserialize)]
 pub struct Floor {
     pub y: f64,
     pub material: Material

@@ -38,7 +38,7 @@ fn main() {
         "\x1b[?47h", //save screen
         "\x1b[?25l", //hide cursor
         "\x1b[H"     //clear screen
-    ); 
+    );
 
     let scene: Scene = scn::generate_default();    
     let t0 = Instant::now();
@@ -52,11 +52,9 @@ fn main() {
         "\x1b[?25h", //show cursor
         "\n\ndone rendering in ", t0.elapsed().as_secs(), " seconds\n"
     );
-
 }
 
-fn write_file(pixels: Vec<Color>, filepath: String)
-{
+fn write_file(pixels: Vec<Color>, filepath: String) {
     let file = File::create(filepath).unwrap();
     let ref mut w = BufWriter::new(file);
 
@@ -66,12 +64,11 @@ fn write_file(pixels: Vec<Color>, filepath: String)
 
     let mut writer = encoder.write_header().unwrap();
 
-    let mut data = [0;WIDTH*HEIGHT*3];
+    let mut data = Vec::new();
     for i in 0..NUM_PIXELS {
-        let j = i * 3;
-        data[j  ] = pixels[i].r;
-        data[j+1] = pixels[i].g;
-        data[j+2] = pixels[i].b;
+        data.push(pixels[i].r);
+        data.push(pixels[i].g);
+        data.push(pixels[i].b);
     }
 
     writer.write_image_data(&data).unwrap();
@@ -115,7 +112,7 @@ impl Scene
                 let mut pixels = pixels.lock().unwrap();
                 let mut depths = Vec::new();
                 for _ in 0..PIXELS_PER_THREAD { //solid black background (really far away) first
-                    pixels.push(Color::new(0,0,0,255));
+                    pixels.push(scene.world.color);
                     depths.push(f64::MAX);
                 }
                 for k in 0..scene.objects.len() {
