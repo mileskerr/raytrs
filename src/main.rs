@@ -24,8 +24,8 @@ mod space;
 
 pub use space::*;
 
-const WIDTH:  usize = 256;
-const HEIGHT: usize = 256;
+const WIDTH:  usize = 300;
+const HEIGHT: usize = 200;
 const THREADS: usize = 16;
 const EXPOSURE: f64 = 30.0;
 
@@ -377,7 +377,7 @@ impl Camera
 
         let view_matrix = Matrix3::new(x_unit,y_unit,z_unit);
 
-        let aspect = (HEIGHT as f64) / (WIDTH as f64);
+        let aspect = (WIDTH as f64) / (HEIGHT as f64);
         let half = aspect/2.0;
 
         let upper_left  = view_matrix * Vec3::new(-half, 0.5,length);
