@@ -2,15 +2,16 @@ extern crate serde_json;
 extern crate serde;
 use std::fs;
 use std::path::Path;
+use std::error;
 
 use self::serde::Deserialize;
 
 use crate::*;
 
 
-pub fn read_json(contents: &str, path: &Path) -> Scene {
-    let scn: IpScene = serde_json::from_str(contents).unwrap();
-    scn.to_scene(path)
+pub fn read_json(contents: &str, path: &Path) -> Result<Scene, Box<dyn error::Error>> {
+    let scn: IpScene = serde_json::from_str(contents)?;
+    Ok(scn.to_scene(path))
 }
 
 impl IpScene {

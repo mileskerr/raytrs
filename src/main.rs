@@ -7,6 +7,10 @@ use std::fs::File;
 use std::path::Path;
 use std::time::Instant;
 use std::io::BufWriter;
+use std::error;
+use std::io::Error;
+use std::fmt::Display;
+use std::process::exit;
 
 //use crate::png;
 
@@ -31,20 +35,47 @@ const PIXELS_PER_THREAD: usize = NUM_PIXELS/THREADS;
 
 fn main() {
 
-    let mut output_file = String::from("out.png");
-    let mut scene_file = String::from("default");
+    setup_screen();
+  
+    let t0 = Instant::now(); //render timer
+    match run() {
+        Ok(()) => {
+            exit(0);
+        }
+        Err(err) => {
+            match err.downcast_ref() {
+                Some(serde_json::Error { .. }) => {
+                    eprintln!("error parsing json: {}", err);
+                    reset_screen();
+                    exit(1);
+                } _=> {
+                    eprintln!("error: {}", err);
+                    reset_screen();
+                    exit(2);
+                }
+            }
+        }
+    }
+}
+
+fn run() -> Result<(),Box<dyn error::Error>> {
+    
+    let mut output_file = String::from("render.png");
+    let mut scene_file: Option<String> = None;
 
     parse_args( vec![
         ClOpt::Flag {
             name: String::from("h"),
             action: &mut ( || {
+                reset_screen();
                 println!(r#"
-                    usage:
-                    -h to show this message
-                    -o [filename] to provide output file (.png)
-                    -s [filename] to provide scene file (.json)
-                    "#
+usage:
+-h to show this message
+-o [filename] to provide output file (.png)
+-s [filename] to provide scene file (.json)
+"#
                 );
+                exit(0);
             }),
         },
         ClOpt::Str {
@@ -56,56 +87,78 @@ fn main() {
         ClOpt::Str {
             name: String::from("s"),
             action: &mut ( |filename| {
-                scene_file = filename;
+                scene_file = Some(filename);
             }),
         },
-    ]);
+    ])?;
 
     setup_screen();
   
     let t0 = Instant::now(); //render timer
-    let (scene_contents,scene_path) = //open scene file or default scene
-        if scene_file.clone() != String::from("default") 
-        { (fs::read_to_string(scene_file.clone()).unwrap(),Path::new(&scene_file)) }
-        else 
-        { (String::from(scn::DEFAULT_JSON),Path::new("./")) };
-    let scene: Scene = scn::read_json(&scene_contents,scene_path);
+    let scene = get_scene(scene_file)?;
     let pixels = scene.render();
-
     write_file(pixels, output_file);
-
-    reset_screen();
     println!("\n\ndone rendering in {} seconds\n", t0.elapsed().as_secs());
-
+    reset_screen();
+    Ok(())
 }
 
-fn parse_args(mut options: Vec<ClOpt>) {
+fn get_scene(scene_file: Option<String>) -> Result<Scene, Box<dyn error::Error>> {
+
+    let mut scene_contents = String::new();
+    let mut scene_path = Path::new("./");
+    match &scene_file {
+        Some(file) => {
+            scene_contents = fs::read_to_string(file)?;
+            scene_path = Path::new(file);
+        }
+        _ => {
+            scene_contents = scn::DEFAULT_JSON.to_string();
+        }
+    }
+    let scene = scn::read_json(&scene_contents,scene_path)?;
+    Ok(scene)
+}
+
+fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
     let mut args = env::args();
     args.next(); //skip 0th argument
     while let Some(arg) = args.next() {
         if arg.find('-') == Some(0) {
             let arg = arg[1..].to_string();
-            for mut opt in &mut options {
+            for opt in &mut options {
                 match opt {
-                    ClOpt::Flag{ name: name, action: action } => {
+                    ClOpt::Flag{ name, action } => {
                         if arg == *name {
                             action();
                             break;
                         }
                     }
-                    ClOpt::Str{ name: name, action: action } => {
+                    ClOpt::Str{ name, action } => {
                         if arg == *name {
-                            action(args.nth(0).unwrap()); //since next argument is value of current argument, skip it
-                            break;
+                            //since next argument is value of current argument, skip it
+                            let arg_result = args.nth(0).ok_or(
+                                Err(ArgsError("no value specified for -".to_string()+&name.to_string()))
+                            );
+                            match arg_result {
+                                Err(err) => {
+                                    return err;
+                                }
+                                Ok(arg) => {
+                                    action(arg);
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         else {
-            println!("owie");
+            return Err(ArgsError("invalid arguments supplied. see -h for usage".to_string()));
         }
     }
+    return Ok(());
 }
 
 enum ClOpt<'a> {
@@ -122,13 +175,21 @@ fn setup_screen() {
     );
 }
 fn reset_screen() {
-    print!("{}{}{}",
+    print!("{}{}{}\n",
         "\x1b[?47l", //restore screen
         "\x1b[u",    //restore cursor
         "\x1b[?25h", //show cursor
     );
 }
-    
+
+#[derive(Debug)]
+struct ArgsError(String);
+impl std::error::Error for ArgsError {}
+impl Display for ArgsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 
 fn write_file(pixels: Vec<Color>, filepath: String) {
