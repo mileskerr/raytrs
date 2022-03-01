@@ -1,25 +1,20 @@
 extern crate serde_json;
 extern crate serde;
 use std::fs;
+use std::path::Path;
 
 use self::serde::Deserialize;
 
 use crate::*;
 
 
-
-pub fn generate_default() -> Scene {
-    //let contents = fs::read_to_string(filename).unwrap();
-    read_json(DEFAULT_JSON)
-}
-
-fn read_json(contents: &str) -> Scene {
+pub fn read_json(contents: &str, path: &Path) -> Scene {
     let scn: IpScene = serde_json::from_str(contents).unwrap();
-    scn.to_scene()
+    scn.to_scene(path)
 }
 
 impl IpScene {
-    fn to_scene(self) -> Scene {
+    fn to_scene(self, path: &Path) -> Scene {
         let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = Vec::new();
         let mut lights = Vec::new();
         for object in self.objects {
@@ -37,17 +32,11 @@ impl IpScene {
                         Material::new(floor.color, floor.reflective),
                     )));
                 }
-                IpObject::inline_obj(inline_obj) => {
+                IpObject::obj(obj) => {
+                    let obj_path = path.parent().unwrap().join(obj.filename);
                     let mut tris = read_obj(
-                        inline_obj.contents.as_str(),
-                        Material::new(inline_obj.color,inline_obj.reflective),
-                    );
-                    objects.append(&mut tris);
-                }
-                IpObject::extern_obj(extern_obj) => {
-                    let mut tris = read_obj(
-                        fs::read_to_string(extern_obj.filename).unwrap().as_str(),
-                        Material::new(extern_obj.color,extern_obj.reflective),
+                        fs::read_to_string(obj_path).unwrap().as_str(),
+                        Material::new(obj.color,obj.reflective),
                     );
                     objects.append(&mut tris);
                 }
@@ -84,8 +73,7 @@ struct IpScene {
 enum IpObject {
     sphere(IpSphere),
     floor(IpFloor),
-    inline_obj(ObjInline),
-    extern_obj(ObjExtern),
+    obj(Obj),
 }
 #[derive(Deserialize)]
 enum IpLight {
@@ -111,13 +99,7 @@ struct IpFloor {
     reflective: bool,
 }
 #[derive(Deserialize)]
-struct ObjInline {
-    color: Color,
-    reflective: bool,
-    contents: String,
-}
-#[derive(Deserialize)]
-struct ObjExtern {
+struct Obj {
     color: Color,
     reflective: bool,
     filename: String,
@@ -182,7 +164,7 @@ fn read_obj(contents: &str, material: Material) -> Vec<Box<dyn SceneObject + Sen
     return tris;
 }
 
-const DEFAULT_JSON: &str = r#"
+pub const DEFAULT_JSON: &str = r#"
 {
     "lights" : [
         {
