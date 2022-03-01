@@ -4,8 +4,12 @@ made for fun and practice with rust
 
 in active development
 
-Edit scn.rs to change the objects in the scene.
-By default it will search for file 'teapot1.obj' in current directory, so make sure to run from repo folder, otherwise it won't find the file and panic.
-I realize this is dumb and will change eventually, when I add command line argument parsing :P
+usage:
+-h to show help
+-o [filename.png] to specify output file (defaults to out.png)
+-s [filename.json] to specify scene file, example can be found in scene\_example/scene.json
+
+be cautioned that I havent added any error handling yet, so it panics at basically anything.
+will fix soon.
 
 ![spheres, shading, obj importing, shadows and multiple light sources](demo.png "demo image")
