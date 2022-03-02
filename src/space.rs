@@ -180,10 +180,8 @@ impl Mul<f64> for Color {
 #[derive(Deserialize)]
 pub struct Camera {
     pub origin: Vec3,
-    pub upper_left: Vec3,
-    pub upper_right: Vec3,
-    pub lower_left: Vec3,
-    pub lower_right: Vec3,
+    pub direction: Vec3,
+    pub length: f64,
 }
 #[derive(Deserialize)]
 pub struct World {

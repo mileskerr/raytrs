@@ -24,19 +24,17 @@ mod space;
 
 pub use space::*;
 
-const WIDTH:  usize = 300;
-const HEIGHT: usize = 200;
-const THREADS: usize = 16;
 const EXPOSURE: f64 = 30.0;
 
-const NUM_PIXELS: usize = WIDTH * HEIGHT;
-const PIXELS_PER_THREAD: usize = NUM_PIXELS/THREADS;
+//const NUM_PIXELS: usize = WIDTH * HEIGHT;
+//const PIXELS_PER_THREAD: usize = NUM_PIXELS/THREADS;
 
 
 fn main() {
 
     setup_screen();
   
+    //basically all main does is handle errors. run() is where the fun begins
     let t0 = Instant::now(); //render timer
     match run() {
         Ok(()) => {
@@ -62,7 +60,12 @@ fn run() -> Result<(),Box<dyn error::Error>> {
     
     let mut output_file = String::from("render.png");
     let mut scene_file: Option<String> = None;
+    let mut width: usize = 256;
+    let mut height: usize = 256;
+    let mut threads: usize = 16;
 
+    //parse args takes a vector of arguments, i have multiple types of arguments stored in an enum
+    //all the types follow the basic structure of having a string name and a cloture to define what they do
     parse_args( vec![
         ClOpt::Flag {
             name: String::from("h"),
@@ -70,9 +73,11 @@ fn run() -> Result<(),Box<dyn error::Error>> {
                 reset_screen();
                 println!(r#"
 usage:
--h to show this message
--o [filename] to provide output file (.png)
--s [filename] to provide scene file (.json)
+[-h] ---------------- to show this message
+[-s <filename>] ----- to set scene file (.json)
+[-o <filename>] ----- to set output file (.png, default render.png)
+[-d <widthxheight>] - to set image dimensions (default 256x256)
+[-t <# of threads>] - to set number of threads used (default 16)
 "#
                 );
                 exit(0);
@@ -90,16 +95,30 @@ usage:
                 scene_file = Some(filename);
             }),
         },
+        ClOpt::Str {
+            name: String::from("d"),
+            action: &mut ( |dimensions| {
+                let mut spl = dimensions.split('x');
+                width = spl.next().unwrap().parse().unwrap();
+                height = spl.next().unwrap().parse().unwrap();
+            }),
+        },
+        ClOpt::Str {
+            name: String::from("t"),
+            action: &mut ( |t| {
+                threads = t.parse().unwrap();
+            }),
+        },
     ])?;
 
     setup_screen();
   
     let t0 = Instant::now(); //render timer
     let scene = get_scene(scene_file)?;
-    let pixels = scene.render();
-    write_file(pixels, output_file);
-    println!("\n\ndone rendering in {} seconds\n", t0.elapsed().as_secs());
+    let pixels = scene.render(width,height,threads);
+    write_file(pixels, width, height, output_file);
     reset_screen();
+    println!("\n\ndone rendering in {} seconds\n", t0.elapsed().as_secs());
     Ok(())
 }
 
@@ -137,8 +156,9 @@ fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
                     ClOpt::Str{ name, action } => {
                         if arg == *name {
                             //since next argument is value of current argument, skip it
-                            let arg_result = args.nth(0).ok_or(
-                                Err(ArgsError("no value specified for -".to_string()+&name.to_string()))
+                            let arg_result = args.next().ok_or(
+                                Err(ArgsError("no value specified for -".to_string() + 
+                                &name.to_string()))
                             );
                             match arg_result {
                                 Err(err) => {
@@ -192,18 +212,18 @@ impl Display for ArgsError {
 }
 
 
-fn write_file(pixels: Vec<Color>, filepath: String) {
+fn write_file(pixels: Vec<Color>, width: usize, height: usize, filepath: String) {
     let file = File::create(filepath).unwrap();
     let ref mut w = BufWriter::new(file);
 
-    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
+    let mut encoder = png::Encoder::new(w, width as u32, height as u32);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
 
     let mut writer = encoder.write_header().unwrap();
 
     let mut data = Vec::new();
-    for i in 0..NUM_PIXELS {
+    for i in 0..width * height {
         data.push(pixels[i].r);
         data.push(pixels[i].g);
         data.push(pixels[i].b);
@@ -226,21 +246,24 @@ impl Scene
     {
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
-    fn render(self) -> Vec<Color> {
+    fn render(self, width: usize, height: usize, threads: usize) -> Vec<Color> {
         println!("preparing... ");
 
+        let num_pixels = width * height;
+        let pixels_per_thread = num_pixels / threads;
+
         let scene = Arc::new(self);
-        let dirs = Arc::new(scene.camera.dirs());
+        let dirs = Arc::new(scene.camera.dirs(width, height));
         let camera_origin = scene.camera.origin;
-        let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::with_capacity(THREADS);
-        let mut handles = Vec::with_capacity(THREADS);
+        let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::with_capacity(threads);
+        let mut handles = Vec::with_capacity(threads);
 
         println!("rendering...");
         let cursor_offset = 5; //legit detecting cursor position is really hard. just hardcoding it
 
-        for i in 0..THREADS {
+        for i in 0..threads {
             let formatted_i = if i > 9 { i.to_string() + ":" } else { i.to_string() + ": " };
-            pixels.push(Arc::new(Mutex::new(Vec::with_capacity(PIXELS_PER_THREAD))));
+            pixels.push(Arc::new(Mutex::new(Vec::with_capacity(pixels_per_thread))));
             let pixels = Arc::clone(&pixels[i]);
             let dirs = Arc::clone(&dirs);
             let scene = Arc::clone(&scene);
@@ -249,7 +272,7 @@ impl Scene
                 //println!("thread {}:," 
                 let mut pixels = pixels.lock().unwrap();
                 let mut depths = Vec::new();
-                for _ in 0..PIXELS_PER_THREAD { //solid black background (really far away) first
+                for _ in 0..pixels_per_thread { //solid black background (really far away) first
                     pixels.push(scene.world.color);
                     depths.push(f64::MAX);
                 }
@@ -257,8 +280,8 @@ impl Scene
                     print!( //progress bar
                         "\x1b[{};0fthread {} {}",i+cursor_offset,formatted_i,progress_bar(k+1, scene.objects.len())
                     );
-                    for j in 0..PIXELS_PER_THREAD {
-                        let ray = Ray::new(camera_origin, dirs[(i * PIXELS_PER_THREAD) + j] + camera_origin);
+                    for j in 0..pixels_per_thread {
+                        let ray = Ray::new(camera_origin, dirs[(i * pixels_per_thread) + j] + camera_origin);
                         let hit = scene.objects[k].raycast(ray);
                         if hit.is_some() {
                             let hit = hit.unwrap();
@@ -280,7 +303,7 @@ impl Scene
             handle.join().unwrap();
         }
 
-        println!("\x1b[{};0fcleaning up...   ",cursor_offset+THREADS+1);
+        println!("\x1b[{};0fcleaning up...   ",cursor_offset+threads+1);
 
         let mut output = Vec::new(); //merge all the thread vectors into a single vector
         for thread in pixels {
@@ -371,41 +394,42 @@ impl Camera
 {
     fn new( origin: Vec3, direction: Vec3, length: f64) -> Camera
     {
-        let z_unit = direction.unit();
-        let x_unit = Vec3::new(0.0,1.0,0.0).cross(z_unit).unit();
-        let y_unit = z_unit.cross(x_unit);
 
-        let view_matrix = Matrix3::new(x_unit,y_unit,z_unit);
-
-        let aspect = (WIDTH as f64) / (HEIGHT as f64);
-        let half = aspect/2.0;
-
-        let upper_left  = view_matrix * Vec3::new(-half, 0.5,length);
-        let upper_right = view_matrix * Vec3::new(half,  0.5,length);
-        let lower_left  = view_matrix * Vec3::new(-half,-0.5,length);
-        let lower_right = view_matrix * Vec3::new(half, -0.5,length);
-
-        Camera { origin: origin, upper_left: upper_left, upper_right: upper_right,
-        lower_left: lower_left, lower_right: lower_right, }
+        Camera { origin: origin, direction: direction, length: length }
     }
     /*fn new(origin: Vec3, upper_left: Vec3, upper_right: Vec3, lower_left: Vec3, lower_right: Vec3) -> Camera
     { Camera
         { origin: origin, upper_left: upper_left, upper_right: upper_right,
         lower_left: lower_left, lower_right: lower_right, }
     }*/
-    fn dirs(&self) -> Vec<Vec3>
+    fn dirs(&self, width: usize, height: usize) -> Vec<Vec3>
     {
         println!("generating view rays...   ");
-        let mut dir = self.upper_left;
 
-        let dx = (self.upper_right.x - self.upper_left.x)/(WIDTH as f64);
-        let dy = (self.upper_right.y - self.lower_right.y)/(HEIGHT as f64);
+        let z_unit = self.direction.unit();
+        let x_unit = Vec3::new(0.0,1.0,0.0).cross(z_unit).unit();
+        let y_unit = z_unit.cross(x_unit);
 
-        let mut dirs = Vec::with_capacity(NUM_PIXELS);
+        let view_matrix = Matrix3::new(x_unit,y_unit,z_unit);
 
-        for _y in 0..HEIGHT {
-            dir.x = self.upper_left.x;
-            for _x in 0..WIDTH {
+        let aspect = (width as f64) / (height as f64);
+        let half = aspect/2.0;
+
+        let upper_left  = view_matrix * Vec3::new(-half, 0.5,self.length);
+        let upper_right = view_matrix * Vec3::new(half,  0.5,self.length);
+        let lower_right = view_matrix * Vec3::new(half, -0.5,self.length);
+
+        let mut dir = upper_left;
+
+        let dx = (upper_right.x - upper_left.x)/(width as f64);
+        let dy = (upper_right.y - lower_right.y)/(height as f64);
+
+        let num_pixels = width * height;
+        let mut dirs = Vec::with_capacity(num_pixels);
+
+        for _y in 0..height {
+            dir.x = upper_left.x;
+            for _x in 0..width {
                 dirs.push(dir);
                 dir.x += dx;
             }
