@@ -35,23 +35,14 @@ fn main() {
     setup_screen();
   
     //basically all main does is handle errors. run() is where the fun begins
-    let t0 = Instant::now(); //render timer
     match run() {
         Ok(()) => {
             exit(0);
         }
         Err(err) => {
-            match err.downcast_ref() {
-                Some(serde_json::Error { .. }) => {
-                    eprintln!("error parsing json: {}", err);
-                    reset_screen();
-                    exit(1);
-                } _=> {
-                    eprintln!("error: {}", err);
-                    reset_screen();
-                    exit(2);
-                }
-            }
+            eprintln!("error: {}", err);
+            reset_screen();
+            exit(2);
         }
     }
 }
@@ -73,11 +64,13 @@ fn run() -> Result<(),Box<dyn error::Error>> {
                 reset_screen();
                 println!(r#"
 usage:
-[-h] ---------------- to show this message
-[-s <filename>] ----- to set scene file (.json)
-[-o <filename>] ----- to set output file (.png, default render.png)
-[-d <widthxheight>] - to set image dimensions (default 256x256)
-[-t <# of threads>] - to set number of threads used (default 16)
+
+[-h]                show this message
+[-s <filename>]     set scene file (.json)
+[-o <filename>]     set output file (.png, defaults to render.png)
+[-d <widthxheight>] set image dimensions (defaults to 256x256)
+[-t <# of threads>] set number of threads used (defaults to 16)
+
 "#
                 );
                 exit(0);
@@ -87,26 +80,43 @@ usage:
             name: String::from("o"),
             action: &mut ( |filename| {
                 output_file = filename;
+                Ok(())
             }),
         },
         ClOpt::Str {
             name: String::from("s"),
             action: &mut ( |filename| {
                 scene_file = Some(filename);
+                Ok(())
             }),
         },
         ClOpt::Str {
             name: String::from("d"),
             action: &mut ( |dimensions| {
                 let mut spl = dimensions.split('x');
-                width = spl.next().unwrap().parse().unwrap();
-                height = spl.next().unwrap().parse().unwrap();
+                width = spl.next().ok_or(
+                        ArgsError("dimensions should be in format: <WIDTHxHEIGHT>".to_string())
+                    )?.parse().or(
+                        Err(ArgsError("invalid width".to_string()))
+                    )?;
+                height = spl.next().ok_or(
+                        ArgsError("dimensions should be in format: <WIDTHxHEIGHT>".to_string())
+                    )?.parse().or(
+                        Err(ArgsError("invalid height".to_string()))
+                    )?;
+                if width == 0 { return Err(ArgsError("width cannot be zero".to_string())) };
+                if height == 0 { return Err(ArgsError("height cannot be zero".to_string())) };
+                Ok(())
             }),
         },
         ClOpt::Str {
             name: String::from("t"),
             action: &mut ( |t| {
-                threads = t.parse().unwrap();
+                threads = t.parse().or(
+                    Err(ArgsError("invalid number of threads".to_string()))
+                )?;
+                if threads == 0 { return Err(ArgsError("number of threads cannot be zero".to_string())); }
+                Ok(())
             }),
         },
     ])?;
@@ -144,7 +154,7 @@ fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
     args.next(); //skip 0th argument
     while let Some(arg) = args.next() {
         if arg.find('-') == Some(0) {
-            let arg = arg[1..].to_string();
+            let arg = arg[1..2].to_string();
             for opt in &mut options {
                 match opt {
                     ClOpt::Flag{ name, action } => {
@@ -157,18 +167,10 @@ fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
                         if arg == *name {
                             //since next argument is value of current argument, skip it
                             let arg_result = args.next().ok_or(
-                                Err(ArgsError("no value specified for -".to_string() + 
-                                &name.to_string()))
-                            );
-                            match arg_result {
-                                Err(err) => {
-                                    return err;
-                                }
-                                Ok(arg) => {
-                                    action(arg);
-                                    break;
-                                }
-                            }
+                                ArgsError("no value specified for -".to_string() + 
+                                &name.to_string())
+                            )?;
+                            action(arg_result)?;
                         }
                     }
                 }
@@ -183,7 +185,7 @@ fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
 
 enum ClOpt<'a> {
     Flag { name: String, action: &'a mut dyn FnMut() },
-    Str { name: String, action: &'a mut dyn FnMut(String) },
+    Str { name: String, action: &'a mut dyn FnMut(String) -> Result<(),ArgsError> },
 }
 
 fn setup_screen() {
