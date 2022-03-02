@@ -37,6 +37,8 @@ impl IpScene {
                     let obj_path = path.parent().unwrap().join(obj.filename);
                     let mut tris = read_obj(
                         fs::read_to_string(obj_path).unwrap().as_str(),
+                        obj.offset,
+                        obj.scale,
                         Material::new(obj.color,obj.reflective),
                     );
                     objects.append(&mut tris);
@@ -104,10 +106,12 @@ struct Obj {
     color: Color,
     reflective: bool,
     filename: String,
+    offset: Vec3,
+    scale: Vec3,
 }
 
 
-fn read_obj(contents: &str, material: Material) -> Vec<Box<dyn SceneObject + Send + Sync>> {
+fn read_obj(contents: &str, offset: Vec3, scale: Vec3, material: Material) -> Vec<Box<dyn SceneObject + Send + Sync>> {
     let mut verts: Vec<Vec3> = Vec::new();
     let mut norms: Vec<Vec3> = Vec::new();
     let mut tris: Vec<Box<dyn SceneObject + Send + Sync>> = Vec::new();
@@ -148,14 +152,18 @@ fn read_obj(contents: &str, material: Material) -> Vec<Box<dyn SceneObject + Sen
                 }
             }
             tris.push( Box::new(Tri::new(
-                verts[i[0]],verts[i[1]],verts[i[2]],
+                verts[i[0]] * scale + offset,
+                verts[i[1]] * scale + offset,
+                verts[i[2]] * scale + offset,
                 norms[n[0]],norms[n[1]],norms[n[2]],
                 material
             )));
 
             if i.len() > 3 { //quad
                 tris.push( Box::new(Tri::new(
-                    verts[i[0]],verts[i[2]],verts[i[3]],
+                    verts[i[0]] * scale + offset,
+                    verts[i[2]] * scale + offset,
+                    verts[i[3]] * scale + offset,
                     norms[n[0]],norms[n[2]],norms[n[3]],
                     material
                 )));

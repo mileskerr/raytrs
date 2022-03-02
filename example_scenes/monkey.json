@@ -1,0 +1,55 @@
+
+{
+    "lights" : [
+        {
+            "point": {
+                "origin": { "x": 1, "y": 7, "z": -3 },
+                "strength": 1.5
+            }
+        },
+        {
+            "point": {
+                "origin": { "x": -8, "y": 4, "z": -8 },
+                "strength": 1.0
+            }
+        },
+        {
+            "point": {
+                "origin": { "x": 2, "y": 2, "z": 5 },
+                "strength": 1.0
+            }
+        }
+    ],
+    "camera" : {
+        "origin": { "x": -2.5, "y": 0.4, "z": -6 },
+        "direction": { "x": 2, "y": 1, "z": 6 },
+        "focal_length": 0.5
+    },
+    "background_color": { "r": 220, "g": 220, "b": 220, "a": 255 },
+    "objects" : [
+        {
+            "floor": {
+                "y": 0,
+                "reflective": true,
+                "color": { "r": 100, "g": 50, "b": 100, "a": 255 }
+            }
+        },
+		{
+			"obj": {
+				"filename": "suzanne.obj",
+				"reflective": false,
+				"color": { "r": 100, "g": 200, "b": 255, "a": 255 },
+                "offset": { "x": 0, "y": -0.1, "z": 0 },
+                "scale": { "x": 3, "y": 3, "z": 3 }
+			}
+		},
+        {
+            "sphere": {
+                "center": { "x": -1.5, "y": 0.8, "z": -2.2 },
+                "radius": 0.8,
+                "reflective": false,
+                "color":  { "r": 255, "g": 0, "b": 0, "a": 255 }
+			}
+        }
+    ]
+}

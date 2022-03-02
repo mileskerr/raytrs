@@ -55,6 +55,15 @@ impl fmt::Debug for Vec3 {
          .finish()
     }
 }
+impl Mul<Vec3> for Vec3 { //this implimentation makes mathmaticians cry
+    type Output = Vec3;
+    fn mul(self, other: Vec3) -> Vec3 {
+        let x = self.x * other.x;
+        let y = self.y * other.y;
+        let z = self.z * other.z;
+        Vec3::new(x,y,z)
+    }
+}
 impl Mul<f64> for Vec3 {
     type Output = Vec3;
     fn mul(self, other: f64) -> Vec3 {

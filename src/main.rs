@@ -8,7 +8,6 @@ use std::path::Path;
 use std::time::Instant;
 use std::io::BufWriter;
 use std::error;
-use std::io::Error;
 use std::fmt::Display;
 use std::process::exit;
 
@@ -32,8 +31,6 @@ const EXPOSURE: f64 = 30.0;
 
 fn main() {
 
-    setup_screen();
-  
     //basically all main does is handle errors. run() is where the fun begins
     match run() {
         Ok(()) => {
@@ -127,6 +124,7 @@ usage:
     let scene = get_scene(scene_file)?;
     let pixels = scene.render(width,height,threads);
     write_file(pixels, width, height, output_file);
+    
     reset_screen();
     println!("\n\ndone rendering in {} seconds\n", t0.elapsed().as_secs());
     Ok(())
@@ -197,9 +195,9 @@ fn setup_screen() {
     );
 }
 fn reset_screen() {
-    print!("{}{}{}\n",
-        "\x1b[?47l", //restore screen
-        "\x1b[u",    //restore cursor
+    print!("{}\n",
+        //"\x1b[?47l", //restore screen
+        //"\x1b[u",    //restore cursor
         "\x1b[?25h", //show cursor
     );
 }
@@ -396,7 +394,6 @@ impl Camera
 {
     fn new( origin: Vec3, direction: Vec3, length: f64) -> Camera
     {
-
         Camera { origin: origin, direction: direction, length: length }
     }
     /*fn new(origin: Vec3, upper_left: Vec3, upper_right: Vec3, lower_left: Vec3, lower_right: Vec3) -> Camera
@@ -406,20 +403,23 @@ impl Camera
     }*/
     fn dirs(&self, width: usize, height: usize) -> Vec<Vec3>
     {
+        //fix image getting shrunk vertically as camera direction changes
         println!("generating view rays...   ");
 
         let z_unit = self.direction.unit();
         let x_unit = Vec3::new(0.0,1.0,0.0).cross(z_unit).unit();
-        let y_unit = z_unit.cross(x_unit);
+        //let y_unit = z_unit.cross(x_unit).unit();
+        let y_unit = Vec3::new(0.0,1.0,0.0);
 
         let view_matrix = Matrix3::new(x_unit,y_unit,z_unit);
 
         let aspect = (width as f64) / (height as f64);
         let half = aspect/2.0;
 
-        let upper_left  = view_matrix * Vec3::new(-half, 0.5,self.length);
-        let upper_right = view_matrix * Vec3::new(half,  0.5,self.length);
-        let lower_right = view_matrix * Vec3::new(half, -0.5,self.length);
+
+        let upper_left  = Vec3::new(-half, 0.5,self.length);
+        let upper_right = Vec3::new(half,  0.5,self.length);
+        let lower_right = Vec3::new(half, -0.5,self.length);
 
         let mut dir = upper_left;
 
@@ -432,7 +432,7 @@ impl Camera
         for _y in 0..height {
             dir.x = upper_left.x;
             for _x in 0..width {
-                dirs.push(dir);
+                dirs.push(view_matrix * dir);
                 dir.x += dx;
             }
             dir.y -= dy;
