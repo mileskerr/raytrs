@@ -269,7 +269,6 @@ impl Scene
             let scene = Arc::clone(&scene);
 
             let handle = thread::spawn(move || {
-                //println!("thread {}:," 
                 let mut pixels = pixels.lock().unwrap();
                 let mut depths = Vec::new();
                 for _ in 0..pixels_per_thread { //solid black background (really far away) first
@@ -456,7 +455,7 @@ impl SceneObject for Tri {
         let h = dir.cross(edge1);
         let a = edge0.dot(h);
         
-        if a > -EPSILON && a < EPSILON
+        if a < EPSILON
         { return None; }
         
         let f = 1.0/a;
