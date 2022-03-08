@@ -30,6 +30,8 @@ pub use space::*;
 
 const EXPOSURE: f64 = 30.0;
 
+static mut QUIET: bool = false;
+
 
 fn main() {
     //all main does is check for errors. run() is where the fun begins
@@ -59,16 +61,23 @@ fn run() -> Result<(),Box<dyn error::Error>> {
             action: &mut ( || {
                 println!(r#"
 usage:
-
 [-h]                show this message
+[-q]                quiet mode, only write render time to stdout
 [-s <filename>]     set scene file (.json)
 [-o <filename>]     set output file (.png, defaults to render.png)
 [-d <widthxheight>] set image dimensions (defaults to 256x256)
 [-t <# of threads>] set number of threads used (defaults to 16)
-
 "#
                 );
                 exit(0);
+            }),
+        },
+        ClOpt::Flag {
+            name: String::from("q"),
+            action: &mut ( || {
+                //trust me bro, im only gonna assign this variable once at the
+                //very beginning you have nothing to worry about compiler
+                unsafe { let q = &mut QUIET; *q = true; };
             }),
         },
         ClOpt::Str {
@@ -117,8 +126,7 @@ usage:
     ])?;
 
   
-    let t0 = Instant::now(); //render timer
-
+    print_loud(format!("loading scene...\n"));
     let scene = { //get scene
         let mut scene_contents = String::new();
         let mut scene_path = Path::new("./");
@@ -134,12 +142,13 @@ usage:
         scn::read_json(&scene_contents,scene_path)?
     };
 
-    
+    let t0 = Instant::now(); //render timer
     let pixels = scene.render(width,height,threads)?; //render
+    println!("done rendering in {} seconds", t0.elapsed().as_secs_f32());
 
 
     { //write file
-        let file = File::create(output_file).unwrap();
+        let file = File::create(&output_file).unwrap();
         let ref mut w = BufWriter::new(file);
 
         let mut encoder = png::Encoder::new(w, width as u32, height as u32);
@@ -155,9 +164,9 @@ usage:
             data.push(pixels[i].b);
         }
         writer.write_image_data(&data).unwrap();
+        print_loud(format!("output written to \"{}\"\n", &output_file));
     }
     
-    println!("done rendering in {} seconds\n", t0.elapsed().as_secs_f32());
     Ok(())
 }
 
@@ -215,7 +224,11 @@ impl Display for ArgsError {
     }
 }
 
-
+fn print_loud(content: String) {
+    if unsafe { !QUIET } {
+        print!("{}",content);
+    }
+}
 
 
 pub struct Scene
@@ -233,10 +246,11 @@ impl Scene {
     }
     fn render(self, width: usize, height: usize, threads: usize) -> Result<Vec<Color>, String> {
 
-        const CHUNK_SIZE: usize = 1024;
         //higher value means threads spend more time sitting around at the end of the render,
         //lower value means more overhead spawning and closing threads. 
         //higher is probably better for heavy scenes.
+        const CHUNK_SIZE: usize = 1024;
+
         let num_pixels = width * height;
         if num_pixels % CHUNK_SIZE != 0 {
             return Err(format!("{}{}","number of pixels not divisible by ",CHUNK_SIZE));
@@ -269,7 +283,7 @@ impl Scene {
         loop {
             let done = rx.recv().unwrap(); //loop waits to recieve message that a thread is done
           
-            let chunk_index = { //get next chunk to render. if none left, break
+            let new_chunk = { //get next chunk to render
                 if done.is_some() {
                     chunk_status[done.unwrap()] = 2;
                 }
@@ -281,30 +295,35 @@ impl Scene {
                         break;
                     }
                 }
-                if new_chunk.is_none() { break; }
-                new_chunk.unwrap()
+                new_chunk
             };
 
-            { //progress indicator
-                let line_length = 32;
-                if chunk_index > 0 {
+            if unsafe {!QUIET} { //progress indicator
+                let aspect = (height as f32) / (width as f32);
+                let line_length: usize = ((chunks as f32) / aspect).sqrt() as usize;
+                if new_chunk.is_none() || new_chunk.unwrap() > 0 {
                     print!("\x1b[{}A",chunks/line_length+1);
                 }
                 let mut new_lines = 0;
-                print!("rendering... {}/{}\n",chunk_index,chunks); new_lines += 1;
+                let mut done_chunks = 0;
+                for i in 0..chunks {
+                    if chunk_status[i] == 2 { done_chunks +=1; }
+                }
+                print!("rendering on {} threads... {}/{}\n",threads,done_chunks,chunks); new_lines += 1;
                 for i in 0..chunks {
                     match chunk_status[i] {
-                        0 => { print!(".") }
-                        1 => { print!("*") }
-                        _ => { print!("#") }
+                        0 => { print!("░░"); }
+                        1 => { print!("▒▒"); }
+                        _ => { print!("██"); }
                     }
-                    if (i+1) % 32 == 0 {
+                    if (i+1) % line_length == 0 {
                         print!("\n"); new_lines += 1;
                     }
                 }
             }
 
-            { //render the chunk in a new thread, meanwhile restart the loop
+            if new_chunk.is_some() { //render the chunk in a new thread, meanwhile restart the loop
+                let chunk_index = new_chunk.unwrap();
                 let dirs = Arc::clone(&dirs);
                 let scene = Arc::clone(&scene);
                 let pixels = Arc::clone(&pixels[chunk_index]);
@@ -337,6 +356,11 @@ impl Scene {
                     tx.send(Some(chunk_index)).unwrap();
                 });
                 handles.push(handle);
+            }
+            //loop keeps running even after there are no chunks to assign,
+            //but it has to stop when they are all finished rendering
+            else if !(chunk_status.contains(&1)) {
+                break;
             }
         }
         for handle in handles {
@@ -437,7 +461,7 @@ impl Camera {
         Camera { origin: origin, direction: direction, length: length }
     }
     fn dirs(&self, width: usize, height: usize) -> Vec<Vec3> {
-        println!("generating view rays...   ");
+        print_loud(format!("generating view rays...\n"));
 
         //first do matrix math to transform the easy-to-understand
         //camera properties into something that's actually useful:
