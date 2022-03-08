@@ -32,8 +32,7 @@ const EXPOSURE: f64 = 30.0;
 
 
 fn main() {
-
-    //basically all main does is handle errors. run() is where the fun begins
+    //all main does is check for errors. run() is where the fun begins
     match run() {
         Ok(()) => {
             exit(0);
@@ -46,15 +45,14 @@ fn main() {
 }
 
 fn run() -> Result<(),Box<dyn error::Error>> {
-    
+   
+    //defaults
     let mut output_file = String::from("render.png");
     let mut scene_file: Option<String> = None;
     let mut width: usize = 256;
     let mut height: usize = 256;
     let mut threads: usize = 16;
 
-    //parse args takes a vector of arguments, i have multiple types of arguments stored in an enum
-    //all the types follow the basic structure of having a string name and a cloture to define what they do
     parse_args( vec![
         ClOpt::Flag {
             name: String::from("h"),
@@ -120,32 +118,52 @@ usage:
 
   
     let t0 = Instant::now(); //render timer
-    let scene = get_scene(scene_file)?;
+    let scene = { //get scene
+        let mut scene_contents = String::new();
+        let mut scene_path = Path::new("./");
+        match &scene_file {
+            Some(file) => {
+                scene_contents = fs::read_to_string(file)?;
+                scene_path = Path::new(file);
+            }
+            _ => {
+                scene_contents = scn::DEFAULT_JSON.to_string();
+            }
+        }
+        scn::read_json(&scene_contents,scene_path)?
+    };
+
+    //render
     let pixels = scene.render(width,height,threads);
-    write_file(pixels, width, height, output_file);
+
+
+    { //write file
+        let file = File::create(output_file).unwrap();
+        let ref mut w = BufWriter::new(file);
+
+        let mut encoder = png::Encoder::new(w, width as u32, height as u32);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+
+        let mut writer = encoder.write_header().unwrap();
+
+        let mut data = Vec::new();
+        for i in 0..width*height {
+            data.push(pixels[i].r);
+            data.push(pixels[i].g);
+            data.push(pixels[i].b);
+        }
+        writer.write_image_data(&data).unwrap();
+    }
     
     println!("done rendering in {} seconds\n", t0.elapsed().as_secs_f32());
     Ok(())
 }
 
-fn get_scene(scene_file: Option<String>) -> Result<Scene, Box<dyn error::Error>> {
-
-    let mut scene_contents = String::new();
-    let mut scene_path = Path::new("./");
-    match &scene_file {
-        Some(file) => {
-            scene_contents = fs::read_to_string(file)?;
-            scene_path = Path::new(file);
-        }
-        _ => {
-            scene_contents = scn::DEFAULT_JSON.to_string();
-        }
-    }
-    let scene = scn::read_json(&scene_contents,scene_path)?;
-    Ok(scene)
-}
 
 fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
+    //checks for arguments and executes the closure provided for each one,
+    //with read data passed into the closure depending on the command line option type
     let mut args = env::args();
     args.next(); //skip 0th argument
     while let Some(arg) = args.next() {
@@ -161,7 +179,7 @@ fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
                     }
                     ClOpt::Str{ name, action } => {
                         if arg == *name {
-                            //since next argument is value of current argument, skip it
+                            //since next argument is inerpreted as the value of current argument, skip it
                             let arg_result = args.next().ok_or(
                                 ArgsError("no value specified for -".to_string() + 
                                 &name.to_string())
@@ -179,9 +197,12 @@ fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
     return Ok(());
 }
 
-enum ClOpt<'a> {
-    Flag { name: String, action: &'a mut dyn FnMut() },
-    Str { name: String, action: &'a mut dyn FnMut(String) -> Result<(),ArgsError> },
+enum ClOpt<'a> { //types of command line options
+    //either runs or doesn't, no data is passed into the closure
+    Flag { name: String, action: &'a mut dyn FnMut() }, 
+    
+    //a required next argument is passed into the closure
+    Str { name: String, action: &'a mut dyn FnMut(String) -> Result<(),ArgsError> }, 
 }
 
 #[derive(Debug)]
@@ -194,25 +215,6 @@ impl Display for ArgsError {
 }
 
 
-fn write_file(pixels: Vec<Color>, width: usize, height: usize, filepath: String) {
-    let file = File::create(filepath).unwrap();
-    let ref mut w = BufWriter::new(file);
-
-    let mut encoder = png::Encoder::new(w, width as u32, height as u32);
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.set_depth(png::BitDepth::Eight);
-
-    let mut writer = encoder.write_header().unwrap();
-
-    let mut data = Vec::new();
-    for i in 0..width * height {
-        data.push(pixels[i].r);
-        data.push(pixels[i].g);
-        data.push(pixels[i].b);
-    }
-
-    writer.write_image_data(&data).unwrap();
-}
 
 
 pub struct Scene
@@ -242,37 +244,44 @@ impl Scene {
         let camera_origin = scene.camera.origin;
         let mut pixels: Vec<Arc<Mutex<[Option<Color>;CHUNK_SIZE]>>> = Vec::with_capacity(chunks);
         
-        let mut chunk_status: Vec<u8> = Vec::new();
+        let mut chunk_status: Vec<u8> = Vec::new(); //0=unrendered, 1=in progress, 2=done
         
         for _ in 0..chunks {
             pixels.push(Arc::new(Mutex::new([None;CHUNK_SIZE])));
             chunk_status.push(0); 
         }
-        
+       
+        //channel threads use to communicate that they finished their chunk.
+        //main thread will start a new thread occupied with an unrendered chunk
+        //upon recieving the message.
         let (tx, rx) = mpsc::channel();
         let mut handles = Vec::with_capacity(threads);
-        
+       
+        //threads are started initially by sending the message that all threads
+        //have finished doing nothing, and need to be given work.
         for _ in 0..threads { tx.send(None).unwrap(); }
 
 
         loop {
-            let done = rx.recv().unwrap();
-           
-            if done.is_some() {
-                chunk_status[done.unwrap()] = 2;
-            }
-            let mut new_chunk: Option<usize> = None;
-            for i in 0..chunks {
-                if chunk_status[i] == 0 {
-                    chunk_status[i] = 1;
-                    new_chunk = Some(i);
-                    break;
+            let done = rx.recv().unwrap(); //loop waits to recieve message that a thread is done
+          
+            let chunk_index = { //get next chunk to render. if none left, break
+                if done.is_some() {
+                    chunk_status[done.unwrap()] = 2;
                 }
-            }
-            if new_chunk.is_none() { break; }
-            let chunk_index = new_chunk.unwrap();
+                let mut new_chunk: Option<usize> = None;
+                for i in 0..chunks {
+                    if chunk_status[i] == 0 {
+                        chunk_status[i] = 1;
+                        new_chunk = Some(i);
+                        break;
+                    }
+                }
+                if new_chunk.is_none() { break; }
+                new_chunk.unwrap()
+            };
 
-            { //progress
+            { //progress indicator
                 let line_length = 32;
                 if chunk_index > 0 {
                     print!("\x1b[{}A",chunks/line_length+1);
@@ -290,13 +299,12 @@ impl Scene {
                     }
                 }
             }
-            
 
-            let dirs = Arc::clone(&dirs);
-            let scene = Arc::clone(&scene);
-            let pixels = Arc::clone(&pixels[chunk_index]);
-            let tx = tx.clone();
-            { 
+            { //render the chunk in a new thread, meanwhile restart the loop
+                let dirs = Arc::clone(&dirs);
+                let scene = Arc::clone(&scene);
+                let pixels = Arc::clone(&pixels[chunk_index]);
+                let tx = tx.clone();
                 let handle = thread::spawn(move || {
                     let mut pixels = pixels.lock().unwrap();
                     let mut depths = Vec::new();
@@ -330,7 +338,10 @@ impl Scene {
         for handle in handles {
             handle.join().unwrap();
         }
-        let mut output: Vec<Color> = Vec::new(); //merge all the thread vectors into a single vector
+
+        //pixels is currently a vector of vector of pixels,
+        //merge it into a single vector of pixels:
+        let mut output: Vec<Color> = Vec::new(); 
         for thread in pixels {
             for pixel in thread.lock().unwrap().clone() {
                 if pixel.is_some() {
@@ -421,18 +432,13 @@ impl Camera {
     fn new( origin: Vec3, direction: Vec3, length: f64) -> Camera {
         Camera { origin: origin, direction: direction, length: length }
     }
-    /*fn new(origin: Vec3, upper_left: Vec3, upper_right: Vec3, lower_left: Vec3, lower_right: Vec3) -> Camera
-    { Camera
-        { origin: origin, upper_left: upper_left, upper_right: upper_right,
-        lower_left: lower_left, lower_right: lower_right, }
-    }*/
     fn dirs(&self, width: usize, height: usize) -> Vec<Vec3> {
-        //fix image getting shrunk vertically as camera direction changes
         println!("generating view rays...   ");
 
+        //first do matrix math to transform the easy-to-understand
+        //camera properties into something that's actually useful:
         let z_unit = self.direction.unit();
         let x_unit = Vec3::new(0.0,1.0,0.0).cross(z_unit).unit();
-        //let y_unit = z_unit.cross(x_unit).unit();
         let y_unit = Vec3::new(0.0,1.0,0.0);
 
         let view_matrix = Matrix3::new(x_unit,y_unit,z_unit);
@@ -440,11 +446,13 @@ impl Camera {
         let aspect = (width as f64) / (height as f64);
         let half = aspect/2.0;
 
-
         let upper_left  = Vec3::new(-half, 0.5,self.length);
         let upper_right = Vec3::new(half,  0.5,self.length);
         let lower_right = Vec3::new(half, -0.5,self.length);
 
+
+
+        //iterate through pixels and calculate their direction:
         let mut dir = upper_left;
 
         let dx = (upper_right.x - upper_left.x)/(width as f64);
@@ -572,9 +580,12 @@ impl SceneObject for Floor {
 
 
 
-trait SceneObject { 
+trait SceneObject {
+    //check intersection of self and a given ray
     fn raycast(&self, ray: Ray) -> Option<RaycastHit>;
-    fn precompute(&self, camera_origin: Vec3) -> PreCompData; //return dot threshold and direction to camera
+
+    //return dot threshold and direction to camera for optimization. WIP, currently unused.
+    fn precompute(&self, camera_origin: Vec3) -> PreCompData;
 }
 
 struct PreCompData { alpha: f64, camera_direction: Vec3 }
