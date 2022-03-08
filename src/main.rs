@@ -118,6 +118,7 @@ usage:
 
   
     let t0 = Instant::now(); //render timer
+
     let scene = { //get scene
         let mut scene_contents = String::new();
         let mut scene_path = Path::new("./");
@@ -133,8 +134,8 @@ usage:
         scn::read_json(&scene_contents,scene_path)?
     };
 
-    //render
-    let pixels = scene.render(width,height,threads);
+    
+    let pixels = scene.render(width,height,threads)?; //render
 
 
     { //write file
@@ -230,13 +231,16 @@ impl Scene {
     ) -> Scene {
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
-    fn render(self, width: usize, height: usize, threads: usize) -> Vec<Color> {
+    fn render(self, width: usize, height: usize, threads: usize) -> Result<Vec<Color>, String> {
 
         const CHUNK_SIZE: usize = 1024;
         //higher value means threads spend more time sitting around at the end of the render,
         //lower value means more overhead spawning and closing threads. 
         //higher is probably better for heavy scenes.
         let num_pixels = width * height;
+        if num_pixels % CHUNK_SIZE != 0 {
+            return Err(format!("{}{}","number of pixels not divisible by ",CHUNK_SIZE));
+        }
         let chunks = num_pixels/CHUNK_SIZE;
         
         let scene = Arc::new(self);
@@ -352,7 +356,7 @@ impl Scene {
                 }
             }
         }
-        return output;
+        Ok(output)
     }
     fn shade_diffuse(&self, hit: RaycastHit) -> Color {
         let mut lightness = 0.0;
