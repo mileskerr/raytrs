@@ -1,21 +1,26 @@
 extern crate png;
 
-use std::thread;
+//https://www.desmos.com/calculator/i19ibmp3yt
+
+
+
 use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
 use std::time::Instant;
 use std::io::BufWriter;
-use std::error;
 use std::fmt::Display;
 use std::process::exit;
+use std::error;
 
 //use crate::png;
 
 
+use std::thread;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::mpsc;
 
 
 mod scn;
@@ -24,9 +29,6 @@ mod space;
 pub use space::*;
 
 const EXPOSURE: f64 = 30.0;
-
-//const NUM_PIXELS: usize = WIDTH * HEIGHT;
-//const PIXELS_PER_THREAD: usize = NUM_PIXELS/THREADS;
 
 
 fn main() {
@@ -38,7 +40,6 @@ fn main() {
         }
         Err(err) => {
             eprintln!("error: {}", err);
-            reset_screen();
             exit(2);
         }
     }
@@ -58,7 +59,6 @@ fn run() -> Result<(),Box<dyn error::Error>> {
         ClOpt::Flag {
             name: String::from("h"),
             action: &mut ( || {
-                reset_screen();
                 println!(r#"
 usage:
 
@@ -118,15 +118,13 @@ usage:
         },
     ])?;
 
-    setup_screen();
   
     let t0 = Instant::now(); //render timer
     let scene = get_scene(scene_file)?;
     let pixels = scene.render(width,height,threads);
     write_file(pixels, width, height, output_file);
     
-    reset_screen();
-    println!("\n\ndone rendering in {} seconds\n", t0.elapsed().as_secs());
+    println!("done rendering in {} seconds\n", t0.elapsed().as_secs_f32());
     Ok(())
 }
 
@@ -186,22 +184,6 @@ enum ClOpt<'a> {
     Str { name: String, action: &'a mut dyn FnMut(String) -> Result<(),ArgsError> },
 }
 
-fn setup_screen() {
-    print!(" {}{}{}{}",
-        "\x1b[s",    //save cursor
-        "\x1b[?47h", //save screen
-        "\x1b[?25l", //hide cursor
-        "\x1b[H"     //clear screen
-    );
-}
-fn reset_screen() {
-    print!("{}\n",
-        //"\x1b[?47l", //restore screen
-        //"\x1b[u",    //restore cursor
-        "\x1b[?25h", //show cursor
-    );
-}
-
 #[derive(Debug)]
 struct ArgsError(String);
 impl std::error::Error for ArgsError {}
@@ -240,82 +222,128 @@ pub struct Scene
     camera: Camera,
     world: World,
 }
-impl Scene
-{
-    fn new(objects: Vec<Box<dyn SceneObject + Send + Sync>>, lights: Vec<Light>, camera: Camera, world: World) -> Scene
-    {
+impl Scene {
+    fn new(
+        objects: Vec<Box<dyn SceneObject + Send + Sync>>, lights: Vec<Light>, camera: Camera, world: World
+    ) -> Scene {
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
     fn render(self, width: usize, height: usize, threads: usize) -> Vec<Color> {
-        println!("preparing... ");
 
+        const CHUNK_SIZE: usize = 1024;
+        //higher value means threads spend more time sitting around at the end of the render,
+        //lower value means more overhead spawning and closing threads. 
+        //higher is probably better for heavy scenes.
         let num_pixels = width * height;
-        let pixels_per_thread = num_pixels / threads;
-
+        let chunks = num_pixels/CHUNK_SIZE;
+        
         let scene = Arc::new(self);
         let dirs = Arc::new(scene.camera.dirs(width, height));
         let camera_origin = scene.camera.origin;
-        let mut pixels: Vec<Arc<Mutex<Vec<Color>>>> = Vec::with_capacity(threads);
+        let mut pixels: Vec<Arc<Mutex<[Option<Color>;CHUNK_SIZE]>>> = Vec::with_capacity(chunks);
+        
+        let mut chunk_status: Vec<u8> = Vec::new();
+        
+        for _ in 0..chunks {
+            pixels.push(Arc::new(Mutex::new([None;CHUNK_SIZE])));
+            chunk_status.push(0); 
+        }
+        
+        let (tx, rx) = mpsc::channel();
         let mut handles = Vec::with_capacity(threads);
+        
+        for _ in 0..threads { tx.send(None).unwrap(); }
 
-        println!("rendering...");
-        let cursor_offset = 5; //legit detecting cursor position is really hard. just hardcoding it
 
-        for i in 0..threads {
-            let formatted_i = if i > 9 { i.to_string() + ":" } else { i.to_string() + ": " };
-            pixels.push(Arc::new(Mutex::new(Vec::with_capacity(pixels_per_thread))));
-            let pixels = Arc::clone(&pixels[i]);
+        loop {
+            let done = rx.recv().unwrap();
+           
+            if done.is_some() {
+                chunk_status[done.unwrap()] = 2;
+            }
+            let mut new_chunk: Option<usize> = None;
+            for i in 0..chunks {
+                if chunk_status[i] == 0 {
+                    chunk_status[i] = 1;
+                    new_chunk = Some(i);
+                    break;
+                }
+            }
+            if new_chunk.is_none() { break; }
+            let chunk_index = new_chunk.unwrap();
+
+            { //progress
+                let line_length = 32;
+                if chunk_index > 0 {
+                    print!("\x1b[{}A",chunks/line_length+1);
+                }
+                let mut new_lines = 0;
+                print!("rendering... {}/{}\n",chunk_index,chunks); new_lines += 1;
+                for i in 0..chunks {
+                    match chunk_status[i] {
+                        0 => { print!(".") }
+                        1 => { print!("*") }
+                        _ => { print!("#") }
+                    }
+                    if (i+1) % 32 == 0 {
+                        print!("\n"); new_lines += 1;
+                    }
+                }
+            }
+            
+
             let dirs = Arc::clone(&dirs);
             let scene = Arc::clone(&scene);
-
-            let handle = thread::spawn(move || {
-                let mut pixels = pixels.lock().unwrap();
-                let mut depths = Vec::new();
-                for _ in 0..pixels_per_thread { //solid black background (really far away) first
-                    pixels.push(scene.world.color);
-                    depths.push(f64::MAX);
-                }
-                for k in 0..scene.objects.len() {
-                    print!( //progress bar
-                        "\x1b[{};0fthread {} {}",i+cursor_offset,formatted_i,progress_bar(k+1, scene.objects.len())
-                    );
-                    for j in 0..pixels_per_thread {
-                        let ray = Ray::new(camera_origin, dirs[(i * pixels_per_thread) + j] + camera_origin);
-                        let hit = scene.objects[k].raycast(ray);
-                        if hit.is_some() {
-                            let hit = hit.unwrap();
-                            if hit.depth < depths[j] {
-                                depths[j] = hit.depth;
-                                if hit.material.reflective {
-                                    pixels[j] = scene.shade_reflective(ray,hit);
-                                } else {
-                                    pixels[j] = scene.shade_diffuse(hit);
+            let pixels = Arc::clone(&pixels[chunk_index]);
+            let tx = tx.clone();
+            { 
+                let handle = thread::spawn(move || {
+                    let mut pixels = pixels.lock().unwrap();
+                    let mut depths = Vec::new();
+                    for i in 0..CHUNK_SIZE { //fill background (really far away) first
+                        pixels[i] = Some(scene.world.color);
+                        depths.push(f64::MAX);
+                    }
+                    for k in 0..scene.objects.len() {
+                        for j in 0..CHUNK_SIZE {
+                            let dir = dirs[(chunk_index * CHUNK_SIZE) + j];
+                            let ray = Ray::new(camera_origin, dir + camera_origin);
+                            let hit = scene.objects[k].raycast(ray);
+                            if hit.is_some() {
+                                let hit = hit.unwrap();
+                                if hit.depth < depths[j] {
+                                    depths[j] = hit.depth;
+                                    if hit.material.reflective {
+                                        pixels[j] = Some(scene.shade_reflective(ray,hit));
+                                    } else {
+                                        pixels[j] = Some(scene.shade_diffuse(hit));
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
-            handles.push(handle);
+                    tx.send(Some(chunk_index)).unwrap();
+                });
+                handles.push(handle);
+            }
         }
         for handle in handles {
             handle.join().unwrap();
         }
-
-        println!("\x1b[{};0fcleaning up...   ",cursor_offset+threads+1);
-
-        let mut output = Vec::new(); //merge all the thread vectors into a single vector
+        let mut output: Vec<Color> = Vec::new(); //merge all the thread vectors into a single vector
         for thread in pixels {
             for pixel in thread.lock().unwrap().clone() {
-                output.push(pixel);
+                if pixel.is_some() {
+                    output.push(pixel.unwrap());
+                }
+                else {
+                    output.push(Color::new(0,0,0,255));
+                }
             }
         }
-
         return output;
-       
     }
-    fn shade_diffuse(&self, hit: RaycastHit) -> Color
-    {
+    fn shade_diffuse(&self, hit: RaycastHit) -> Color {
         let mut lightness = 0.0;
         for light in &self.lights {
             match light {
@@ -389,10 +417,8 @@ fn progress_bar(value: usize,max: usize) -> String {
     return bar;
 }
 
-impl Camera
-{
-    fn new( origin: Vec3, direction: Vec3, length: f64) -> Camera
-    {
+impl Camera {
+    fn new( origin: Vec3, direction: Vec3, length: f64) -> Camera {
         Camera { origin: origin, direction: direction, length: length }
     }
     /*fn new(origin: Vec3, upper_left: Vec3, upper_right: Vec3, lower_left: Vec3, lower_right: Vec3) -> Camera
@@ -400,8 +426,7 @@ impl Camera
         { origin: origin, upper_left: upper_left, upper_right: upper_right,
         lower_left: lower_left, lower_right: lower_right, }
     }*/
-    fn dirs(&self, width: usize, height: usize) -> Vec<Vec3>
-    {
+    fn dirs(&self, width: usize, height: usize) -> Vec<Vec3> {
         //fix image getting shrunk vertically as camera direction changes
         println!("generating view rays...   ");
 
@@ -484,6 +509,12 @@ impl SceneObject for Tri {
         else
         { return None; }
     }
+    fn precompute(&self, camera_origin: Vec3) -> PreCompData {
+        PreCompData {
+            alpha: f64::MAX,
+            camera_direction: Vec3::new(0.0,1.0,0.0)
+        }
+    }
 }
 
 impl SceneObject for Sphere {
@@ -511,9 +542,14 @@ impl SceneObject for Sphere {
         }
         return hit;
     }
+    fn precompute(&self, camera_origin: Vec3) -> PreCompData {
+        PreCompData {
+            alpha: f64::MAX,
+            camera_direction: Vec3::new(0.0,1.0,0.0)
+        }
+    }
 }
-impl SceneObject for Floor
-{
+impl SceneObject for Floor {
     fn raycast(&self, ray: Ray) -> Option<RaycastHit> {
         let dir = (ray.end - ray.start).unit();
         if dir.y >= 0.0 {
@@ -526,9 +562,19 @@ impl SceneObject for Floor
             return Some(RaycastHit::new(point, Vec3::new(0.0,1.0,0.0), t, self.material));
         }
     }
+    fn precompute(&self, camera_origin: Vec3) -> PreCompData {
+        PreCompData {
+            alpha: f64::MAX,
+            camera_direction: Vec3::new(0.0,1.0,0.0)
+        }
+    }
 }
 
 
 
-trait SceneObject
-{ fn raycast(&self, ray: Ray) -> Option<RaycastHit>; }
+trait SceneObject { 
+    fn raycast(&self, ray: Ray) -> Option<RaycastHit>;
+    fn precompute(&self, camera_origin: Vec3) -> PreCompData; //return dot threshold and direction to camera
+}
+
+struct PreCompData { alpha: f64, camera_direction: Vec3 }
