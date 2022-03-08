@@ -252,9 +252,6 @@ impl Scene {
         const CHUNK_SIZE: usize = 1024;
 
         let num_pixels = width * height;
-        if num_pixels % CHUNK_SIZE != 0 {
-            return Err(format!("{}{}","number of pixels not divisible by ",CHUNK_SIZE));
-        }
         let chunks = num_pixels/CHUNK_SIZE;
         
         let scene = Arc::new(self);
@@ -263,11 +260,15 @@ impl Scene {
         let mut pixels: Vec<Arc<Mutex<[Option<Color>;CHUNK_SIZE]>>> = Vec::with_capacity(chunks);
         
         let mut chunk_status: Vec<u8> = Vec::new(); //0=unrendered, 1=in progress, 2=done
-        
         for _ in 0..chunks {
             pixels.push(Arc::new(Mutex::new([None;CHUNK_SIZE])));
             chunk_status.push(0); 
         }
+        if num_pixels % CHUNK_SIZE != 0 {
+            pixels.push(Arc::new(Mutex::new([None;CHUNK_SIZE])));
+        }
+        
+        
        
         //channel threads use to communicate that they finished their chunk.
         //main thread will start a new thread occupied with an unrendered chunk
@@ -302,7 +303,7 @@ impl Scene {
                 let aspect = (height as f32) / (width as f32);
                 let line_length: usize = ((chunks as f32) / aspect).sqrt() as usize;
                 if new_chunk.is_none() || new_chunk.unwrap() > 0 {
-                    print!("\x1b[{}A",chunks/line_length+1);
+                    print!("\x1b[{}A\n",chunks/line_length+2);
                 }
                 let mut new_lines = 0;
                 let mut done_chunks = 0;
@@ -314,12 +315,13 @@ impl Scene {
                     match chunk_status[i] {
                         0 => { print!("░░"); }
                         1 => { print!("▒▒"); }
-                        _ => { print!("██"); }
+                        _ => { print!("▓▓"); }
                     }
-                    if (i+1) % line_length == 0 {
+                    if (i+1) % line_length == 0 && i+1 < line_length * (chunks/line_length) {
                         print!("\n"); new_lines += 1;
                     }
                 }
+                print!("\n");
             }
 
             if new_chunk.is_some() { //render the chunk in a new thread, meanwhile restart the loop
@@ -328,7 +330,7 @@ impl Scene {
                 let scene = Arc::clone(&scene);
                 let pixels = Arc::clone(&pixels[chunk_index]);
                 let tx = tx.clone();
-                let handle = thread::spawn(move || {
+                let handle = thread::spawn(move || { //actual rendering code here:
                     let mut pixels = pixels.lock().unwrap();
                     let mut depths = Vec::new();
                     for i in 0..CHUNK_SIZE { //fill background (really far away) first
