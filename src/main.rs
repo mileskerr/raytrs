@@ -70,6 +70,7 @@ fn run() -> Result<(),Box<dyn error::Error>> {
                 println!("{}",HELP);
                 exit(0);
             })}),
+    
             ("q", ClOpt::Flag{ action: &mut ( || {
                 //trust me bro, im only gonna assign this variable once at the
                 //very beginning you have nothing to worry about compiler
@@ -129,14 +130,13 @@ fn run() -> Result<(),Box<dyn error::Error>> {
     println!("done rendering in {} seconds", t0.elapsed().as_secs_f32());
 
     { //write file
-        let file = File::create(&output_file).unwrap();
+        let file = File::create(&output_file)?;
         let ref mut w = BufWriter::new(file);
 
         let mut encoder = png::Encoder::new(w, width as u32, height as u32);
         encoder.set_color(png::ColorType::Rgb);
         encoder.set_depth(png::BitDepth::Eight);
-
-        let mut writer = encoder.write_header().unwrap();
+        let mut writer = encoder.write_header()?;
 
         let mut data = Vec::new();
         for i in 0..width*height {
@@ -144,10 +144,9 @@ fn run() -> Result<(),Box<dyn error::Error>> {
             data.push(pixels[i].g);
             data.push(pixels[i].b);
         }
-        writer.write_image_data(&data).unwrap();
+        writer.write_image_data(&data)?;
         print_loud(format!("output written to \"{}\"\n", &output_file));
     }
-    
     Ok(())
 }
 
@@ -225,10 +224,8 @@ impl Scene {
     }
     fn render(self, width: usize, height: usize, threads: usize) -> Result<Vec<Color>, String> {
 
-        //higher value means threads spend more time sitting around at the end of the render,
-        //lower value means more overhead spawning and closing threads. 
-        //higher is probably better for heavy scenes.
-        const CHUNK_SIZE: usize = 1024;
+        //higher is much better for large scenes
+        const CHUNK_SIZE: usize = 256;
 
         let num_pixels = width * height;
         let chunks = num_pixels/CHUNK_SIZE;
@@ -243,26 +240,22 @@ impl Scene {
             pixels.push(Arc::new(Mutex::new([None;CHUNK_SIZE])));
             chunk_status.push(0); 
         }
-        if num_pixels % CHUNK_SIZE != 0 {
+        if num_pixels % CHUNK_SIZE != 0 { //chunk at the end for leftover pixels. this won't be totally filled
             pixels.push(Arc::new(Mutex::new([None;CHUNK_SIZE])));
         }
-        
-        
-       
+
         //channel threads use to communicate that they finished their chunk.
         //main thread will start a new thread occupied with an unrendered chunk
         //upon recieving the message.
         let (tx, rx) = mpsc::channel();
         let mut handles = Vec::with_capacity(threads);
-       
+
         //threads are started initially by sending the message that all threads
         //have finished doing nothing, and need to be given work.
         for _ in 0..threads { tx.send(None).unwrap(); }
 
-
         loop {
             let done = rx.recv().unwrap(); //loop waits to recieve message that a thread is done
-          
             let new_chunk = { //get next chunk to render
                 if done.is_some() {
                     chunk_status[done.unwrap()] = 2;
@@ -277,7 +270,6 @@ impl Scene {
                 }
                 new_chunk
             };
-
             if unsafe {!QUIET} { //progress indicator
                 let aspect = (height as f32) / (width as f32);
                 let line_length: usize = ((chunks as f32) / aspect).sqrt() as usize;
@@ -325,9 +317,9 @@ impl Scene {
                                 if hit.depth < depths[j] {
                                     depths[j] = hit.depth;
                                     if hit.material.reflective {
-                                        pixels[j] = Some(scene.shade_reflective(ray,hit));
+                                        pixels[j] = Some(shade_reflective(ray,hit,&scene));
                                     } else {
-                                        pixels[j] = Some(scene.shade_diffuse(hit));
+                                        pixels[j] = Some(shade_diffuse(hit,&scene.lights,&scene.objects));
                                     }
                                 }
                             }
@@ -347,7 +339,7 @@ impl Scene {
             handle.join().unwrap();
         }
 
-        //pixels is currently a vector of vector of pixels,
+        //pixels is currently a vector of arrays of pixels,
         //merge it into a single vector of pixels:
         let mut output: Vec<Color> = Vec::new(); 
         for thread in pixels {
@@ -362,48 +354,49 @@ impl Scene {
         }
         Ok(output)
     }
-    fn shade_diffuse(&self, hit: RaycastHit) -> Color {
-        let mut lightness = 0.0;
-        for light in &self.lights {
-            match light {
-                Light::Point(point_light) => {
-                    //diffuse shading
-                    let light_vector = point_light.origin - hit.point;
-                    let light_distance = light_vector.magn();
-                    let light_dir = light_vector / light_distance;
-                    let mut l0 = (light_dir.dot(hit.normal)) * point_light.strength;
-                    if l0 < 0.0 //clamp because we dont want negative values messing things up
-                    { l0 = 0.0 }
-                    let mut new_light = ((l0 * l0) * EXPOSURE) / (light_distance * light_distance);
-                    //shadows
-                    for i in 0..self.objects.len() {
-                        let ray = Ray::new( hit.point, point_light.origin);
-                        let hit1 = &self.objects[i].raycast( ray );
-                        if hit1.is_some() {
-                            new_light = 0.0;
-                        }
+}
+fn shade_diffuse(hit: RaycastHit, lights: &Vec<Light>, objects: &Vec<Box<dyn SceneObject + Send + Sync>> ) -> Color {
+    let mut lightness = 0.0;
+    for light in lights {
+        match light {
+            Light::Point(point_light) => {
+                //diffuse shading
+                let light_vector = point_light.origin - hit.point;
+                let light_distance = light_vector.magn();
+                let light_dir = light_vector / light_distance;
+                let mut l0 = (light_dir.dot(hit.normal)) * point_light.strength;
+                if l0 < 0.0 { l0 = 0.0 } //clamp
+                let mut new_light = ((l0 * l0) * EXPOSURE) / (light_distance * light_distance);
+                //shadows
+                for i in 0..objects.len() {
+                    let ray = Ray::new( hit.point, point_light.origin);
+                    let hit1 = objects[i].raycast( ray );
+                    if hit1.is_some() {
+                        new_light = 0.0;
                     }
-                    lightness = lightness + new_light;
                 }
-                _ => {}
+                lightness = lightness + new_light;
             }
+            _ => {}
         }
-        let pixel = hit.material.color * lightness;
-        return pixel;
     }
-    fn shade_reflective(&self, ray: Ray, hit: RaycastHit) -> Color {
-        let mut pixel = self.world.color;
+    let pixel = hit.material.color * lightness;
+    return pixel;
+}
+fn shade_reflective(ray: Ray, hit: RaycastHit, scene: &Scene) -> Color {
+    let mut pixel = scene.world.color;
+    let mut depth = f64::MAX;
 
-        for object_index_1 in 0..self.objects.len() {
-            let new_ray = Ray::new(hit.point, (ray.start - ray.end).unit().reflect(hit.normal) + hit.point);
-            let hit1 = &self.objects[object_index_1].raycast( new_ray );
-            if hit1.is_some()
-            {
-                pixel = self.shade_diffuse( hit1.unwrap() );
-            }
+    for i in 0..scene.objects.len() {
+        let new_ray = Ray::new(hit.point, (ray.start - ray.end).unit().reflect(hit.normal) + hit.point);
+        let refl_hit = scene.objects[i].raycast( new_ray );
+        if refl_hit.is_some() && refl_hit.unwrap().depth < depth
+        {
+            depth = refl_hit.unwrap().depth;
+            pixel = shade_diffuse( refl_hit.unwrap(), &scene.lights, &scene.objects );
         }
-        return pixel;
     }
+    return pixel;
 }
 
 impl Camera {
