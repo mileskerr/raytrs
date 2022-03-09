@@ -20,20 +20,20 @@ impl IpScene {
         let mut lights = Vec::new();
         for object in self.objects {
             match object {
-                IpObject::sphere(sphere) => {
+                IpObject::Sphere(sphere) => {
                     objects.push(Box::new(Sphere::new(
                         sphere.center,
                         sphere.radius,
                         Material::new(sphere.color, sphere.reflective),
                     )));
                 }
-                IpObject::floor(floor) => {
+                IpObject::Floor(floor) => {
                     objects.push(Box::new(Floor::new(
                         floor.y,
                         Material::new(floor.color, floor.reflective),
                     )));
                 }
-                IpObject::obj(obj) => {
+                IpObject::Obj(obj) => {
                     let obj_path = path.parent().unwrap().join(obj.filename);
                     let mut tris = read_obj(
                         fs::read_to_string(obj_path).unwrap().as_str(),
@@ -47,7 +47,7 @@ impl IpScene {
         }
         for light in self.lights {
             match light {
-                IpLight::point(pointlight) => {
+                IpLight::Point(pointlight) => {
                     lights.push(Light::Point(pointlight));
                 }
             }
@@ -73,13 +73,17 @@ struct IpScene {
 }
 #[derive(Deserialize)]
 enum IpObject {
-    sphere(IpSphere),
-    floor(IpFloor),
-    obj(Obj),
+    #[serde(rename = "sphere")]
+    Sphere(IpSphere),
+    #[serde(rename = "floor")]
+    Floor(IpFloor),
+    #[serde(rename = "obj")]
+    Obj(Obj),
 }
 #[derive(Deserialize)]
 enum IpLight {
-    point(PointLight),
+    #[serde(rename = "point")]
+    Point(PointLight),
 }
 #[derive(Deserialize)]
 struct IpCamera {
