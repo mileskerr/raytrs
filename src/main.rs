@@ -317,7 +317,7 @@ impl Scene {
                                 if hit.depth < depths[j] {
                                     depths[j] = hit.depth;
                                     if hit.material.reflective {
-                                        pixels[j] = Some(shade_reflective(ray,hit,&scene));
+                                        pixels[j] = Some(shade_reflective(ray,hit,&scene,3));
                                     } else {
                                         pixels[j] = Some(shade_diffuse(hit,&scene.lights,&scene.objects));
                                     }
@@ -383,7 +383,7 @@ fn shade_diffuse(hit: RaycastHit, lights: &Vec<Light>, objects: &Vec<Box<dyn Sce
     let pixel = hit.material.color * lightness;
     return pixel;
 }
-fn shade_reflective(ray: Ray, hit: RaycastHit, scene: &Scene) -> Color {
+fn shade_reflective(ray: Ray, hit: RaycastHit, scene: &Scene, recurs_lim: u8) -> Color {
     let mut pixel = scene.world.color;
     let mut depth = f64::MAX;
 
@@ -392,8 +392,13 @@ fn shade_reflective(ray: Ray, hit: RaycastHit, scene: &Scene) -> Color {
         let refl_hit = scene.objects[i].raycast( new_ray );
         if refl_hit.is_some() && refl_hit.unwrap().depth < depth
         {
-            depth = refl_hit.unwrap().depth;
-            pixel = shade_diffuse( refl_hit.unwrap(), &scene.lights, &scene.objects );
+            let refl_hit = refl_hit.unwrap();
+            depth = refl_hit.depth; 
+            if recurs_lim > 0 && refl_hit.material.reflective {
+                pixel = shade_reflective( new_ray, refl_hit, &scene, recurs_lim - 1 );
+            } else {
+                pixel = shade_diffuse( refl_hit, &scene.lights, &scene.objects );
+            }
         }
     }
     return pixel;
