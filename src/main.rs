@@ -11,6 +11,7 @@ use std::io::BufWriter;
 use std::fmt::Display;
 use std::process::exit;
 use std::error;
+use std::collections::HashMap;
 
 //use crate::png;
 
@@ -25,6 +26,17 @@ mod scn;
 mod space;
 
 pub use space::*;
+
+const HELP: &str = r#"
+usage:
+[-h]                show this message
+[-q]                quiet mode, only write render time to stdout
+[-s <filename>]     set scene file (.json)
+[-o <filename>]     set output file (.png, defaults to render.png)
+[-d <WIDTHxHEIGHT>] set image dimensions (defaults to 256x256)
+[-t <# of threads>] set number of threads used (should be >= number of logical cores in your system, defaults to 32)
+"#;
+
 
 const EXPOSURE: f64 = 30.0;
 
@@ -45,7 +57,6 @@ fn main() {
 }
 
 fn run() -> Result<(),Box<dyn error::Error>> {
-   
     //defaults
     let mut output_file = String::from("render.png");
     let mut scene_file: Option<String> = None;
@@ -53,48 +64,26 @@ fn run() -> Result<(),Box<dyn error::Error>> {
     let mut height: usize = 256;
     let mut threads: usize = 32;
 
-    parse_args( vec![
-        ClOpt::Flag {
-            name: String::from("h"),
-            action: &mut ( || {
-                println!(r#"
-usage:
-[-h]                show this message
-[-q]                quiet mode, only write render time to stdout
-[-s <filename>]     set scene file (.json)
-[-o <filename>]     set output file (.png, defaults to render.png)
-[-d <WIDTHxHEIGHT>] set image dimensions (defaults to 256x256)
-[-t <# of threads>] set number of threads used (should be >= number of logical cores in your system, defaults to 32)
-"#
-                );
+    { //arguments
+        let opts = [
+            ("h", ClOpt::Flag{ action: &mut ( || {
+                println!("{}",HELP);
                 exit(0);
-            }),
-        },
-        ClOpt::Flag {
-            name: String::from("q"),
-            action: &mut ( || {
+            })}),
+            ("q", ClOpt::Flag{ action: &mut ( || {
                 //trust me bro, im only gonna assign this variable once at the
                 //very beginning you have nothing to worry about compiler
                 unsafe { QUIET = true; };
-            }),
-        },
-        ClOpt::Str {
-            name: String::from("o"),
-            action: &mut ( |filename| {
+            })}),
+            ("o", ClOpt::Str{ action: &mut ( |filename: String| {
                 output_file = filename;
                 Ok(())
-            }),
-        },
-        ClOpt::Str {
-            name: String::from("s"),
-            action: &mut ( |filename| {
+            })}),
+            ("s", ClOpt::Str{ action: &mut ( |filename: String| {
                 scene_file = Some(filename);
                 Ok(())
-            }),
-        },
-        ClOpt::Str {
-            name: String::from("d"),
-            action: &mut ( |dimensions| {
+            })}),
+            ("d", ClOpt::Str{ action: &mut ( |dimensions: String| {
                 let mut spl = dimensions.split('x');
                 width = spl.next().ok_or(
                         ArgsError("dimensions should be in format: <WIDTHxHEIGHT>".to_string())
@@ -109,20 +98,17 @@ usage:
                 if width == 0 { return Err(ArgsError("width cannot be zero".to_string())) };
                 if height == 0 { return Err(ArgsError("height cannot be zero".to_string())) };
                 Ok(())
-            }),
-        },
-        ClOpt::Str {
-            name: String::from("t"),
-            action: &mut ( |t| {
+            })}),
+            ("t", ClOpt::Str{ action: &mut ( |t: String| {
                 threads = t.parse().or(
                     Err(ArgsError("invalid number of threads".to_string()))
                 )?;
                 if threads == 0 { return Err(ArgsError("number of threads cannot be zero".to_string())); }
                 Ok(())
-            }),
-        },
-    ])?;
-
+            })}),
+        ];
+        parse_args(&mut HashMap::from(opts))?;
+    }
   
     print_loud(format!("loading scene...\n"));
 
@@ -166,31 +152,29 @@ usage:
 }
 
 
-fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
+fn parse_args<'a>(options: &mut HashMap<&str, ClOpt> ) -> Result<(),ArgsError> {
     //checks for arguments and executes the closure provided for each one,
     //with read data passed into the closure depending on the command line option type
     let mut args = env::args();
     args.next(); //skip 0th argument
     while let Some(arg) = args.next() {
         if arg.find('-') == Some(0) {
-            let arg = arg[1..2].to_string();
-            for opt in &mut options {
-                match opt {
-                    ClOpt::Flag{ name, action } => {
-                        if arg == *name {
-                            action();
-                            break;
-                        }
+            for i in 1..arg.len() {
+                let name= &arg[i..i+1];
+                match options.get_mut(name) {
+                    Some(ClOpt::Flag{action}) => {
+                        action();
                     }
-                    ClOpt::Str{ name, action } => {
-                        if arg == *name {
-                            //since next argument is inerpreted as the value of current argument, skip it
-                            let arg_result = args.next().ok_or(
-                                ArgsError("no value specified for -".to_string() + 
-                                &name.to_string())
-                            )?;
-                            action(arg_result)?;
-                        }
+                    Some(ClOpt::Str{action}) => {
+                        //since next argument is inerpreted as the value of current argument, skip it
+                        let arg_result = args.next().ok_or(
+                            ArgsError("no value specified for -".to_string() + 
+                            name)
+                        )?;
+                        action(arg_result)?;
+                    }
+                    _=> {
+                        return Err(ArgsError("invalid arguments supplied. see -h for usage".to_string()));
                     }
                 }
             }
@@ -204,10 +188,10 @@ fn parse_args(mut options: Vec<ClOpt>) -> Result<(),ArgsError>{
 
 enum ClOpt<'a> { //types of command line options
     //either runs or doesn't, no data is passed into the closure
-    Flag { name: String, action: &'a mut dyn FnMut() }, 
+    Flag{ action: &'a mut dyn FnMut() }, 
     
     //a required next argument is passed into the closure
-    Str { name: String, action: &'a mut dyn FnMut(String) -> Result<(),ArgsError> }, 
+    Str{ action: &'a mut dyn FnMut(String) -> Result<(),ArgsError> }, 
 }
 
 #[derive(Debug)]
