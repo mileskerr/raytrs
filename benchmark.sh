@@ -12,10 +12,12 @@ do
 	do
 		time="$( raytrs -q -s "$scene" -d "$res" "$@" | awk '{ print $4}' )"
 		echo "benchmarking \"$scene\" at $res ..."
-		total="$( echo "$total + $time/${baselines[$index]}" | bc -l )"
+		score="$( echo "($time/${baselines[$index]}) * 100" | bc -l )"
+		echo "$score"
+		total="$( echo "$total + $score" | bc -l )"
 		index="$( expr $index + 1 )"
 	done
 done
 
-score="$( echo "($total / $index) * 100" | bc -l )"
+score="$( echo "($total / $index)" | bc -l )"
 echo "score (lower is better): $score"
