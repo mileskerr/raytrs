@@ -2,8 +2,6 @@ extern crate png;
 
 //https://www.desmos.com/calculator/i19ibmp3yt
 
-
-
 use std::env;
 use std::fs;
 use std::fs::File;
@@ -29,7 +27,6 @@ mod space;
 pub use space::*;
 
 const EXPOSURE: f64 = 30.0;
-
 static mut QUIET: bool = false;
 
 
@@ -53,7 +50,7 @@ fn run() -> Result<(),Box<dyn error::Error>> {
     let mut scene_file: Option<String> = None;
     let mut width: usize = 256;
     let mut height: usize = 256;
-    let mut threads: usize = 16;
+    let mut threads: usize = 32;
 
     parse_args( vec![
         ClOpt::Flag {
@@ -65,8 +62,8 @@ usage:
 [-q]                quiet mode, only write render time to stdout
 [-s <filename>]     set scene file (.json)
 [-o <filename>]     set output file (.png, defaults to render.png)
-[-d <widthxheight>] set image dimensions (defaults to 256x256)
-[-t <# of threads>] set number of threads used (defaults to 16)
+[-d <WIDTHxHEIGHT>] set image dimensions (defaults to 256x256)
+[-t <# of threads>] set number of threads used (should be >= number of logical cores in your system, defaults to 32)
 "#
                 );
                 exit(0);
