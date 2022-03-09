@@ -27,6 +27,7 @@ mod space;
 pub use space::*;
 
 const EXPOSURE: f64 = 30.0;
+
 static mut QUIET: bool = false;
 
 
@@ -74,7 +75,7 @@ usage:
             action: &mut ( || {
                 //trust me bro, im only gonna assign this variable once at the
                 //very beginning you have nothing to worry about compiler
-                unsafe { let q = &mut QUIET; *q = true; };
+                unsafe { QUIET = true; };
             }),
         },
         ClOpt::Str {
@@ -124,25 +125,22 @@ usage:
 
   
     print_loud(format!("loading scene...\n"));
-    let scene = { //get scene
-        let mut scene_contents = String::new();
+
+    let scene = {
         let mut scene_path = Path::new("./");
-        match &scene_file {
+        let scene_contents = match &scene_file {
             Some(file) => {
-                scene_contents = fs::read_to_string(file)?;
                 scene_path = Path::new(file);
+                fs::read_to_string(file)?
             }
-            _ => {
-                scene_contents = scn::DEFAULT_JSON.to_string();
-            }
-        }
+            None => { scn::DEFAULT_JSON.to_string() }
+        };
         scn::read_json(&scene_contents,scene_path)?
     };
 
     let t0 = Instant::now(); //render timer
     let pixels = scene.render(width,height,threads)?; //render
     println!("done rendering in {} seconds", t0.elapsed().as_secs_f32());
-
 
     { //write file
         let file = File::create(&output_file).unwrap();
@@ -302,12 +300,11 @@ impl Scene {
                 if new_chunk.is_none() || new_chunk.unwrap() > 0 {
                     print!("\x1b[{}A\n",chunks/line_length+2);
                 }
-                let mut new_lines = 0;
                 let mut done_chunks = 0;
                 for i in 0..chunks {
                     if chunk_status[i] == 2 { done_chunks +=1; }
                 }
-                print!("rendering on {} threads... {}/{}\n",threads,done_chunks,chunks); new_lines += 1;
+                print!("rendering on {} threads... {}/{}\n",threads,done_chunks,chunks);
                 for i in 0..chunks {
                     match chunk_status[i] {
                         0 => { print!("░░"); }
@@ -315,7 +312,7 @@ impl Scene {
                         _ => { print!("▓▓"); }
                     }
                     if (i+1) % line_length == 0 && i+1 < line_length * (chunks/line_length) {
-                        print!("\n"); new_lines += 1;
+                        print!("\n");
                     }
                 }
                 print!("\n");
@@ -424,36 +421,6 @@ impl Scene {
         return pixel;
     }
 }
-fn progress_bar(value: usize,max: usize) -> String {
-    const LEN: usize  = 32;
-    const START: char = '[';
-    const END: char   = ']';
-    const FILL: char  = '#';
-    const DIV: char   = '#';
-    const EMPT: char  = '-';
-    const DONE: &str  = "[              DONE              ]";
-
-    if value >= max
-    { return String::from(DONE); }
-
-    let amount = if max == 0 { 0 } else { (value * LEN)/max };
-    let empty = LEN - amount;
-
-    let mut bar = String::with_capacity(LEN + 2);
-
-    let length = if amount > 0 { amount - 1 } else { 0 };
-    bar.push(START);
-    for _ in 0..length {
-        bar.push(FILL);
-    }
-    if amount > 0 { bar.push(DIV); }
-    for _ in 0..empty {
-        bar.push(EMPT);
-    }
-    bar.push(END);
-    
-    return bar;
-}
 
 impl Camera {
     fn new( origin: Vec3, direction: Vec3, length: f64) -> Camera {
@@ -544,12 +511,6 @@ impl SceneObject for Tri {
         else
         { return None; }
     }
-    fn precompute(&self, camera_origin: Vec3) -> PreCompData {
-        PreCompData {
-            alpha: f64::MAX,
-            camera_direction: Vec3::new(0.0,1.0,0.0)
-        }
-    }
 }
 
 impl SceneObject for Sphere {
@@ -577,12 +538,6 @@ impl SceneObject for Sphere {
         }
         return hit;
     }
-    fn precompute(&self, camera_origin: Vec3) -> PreCompData {
-        PreCompData {
-            alpha: f64::MAX,
-            camera_direction: Vec3::new(0.0,1.0,0.0)
-        }
-    }
 }
 impl SceneObject for Floor {
     fn raycast(&self, ray: Ray) -> Option<RaycastHit> {
@@ -597,12 +552,6 @@ impl SceneObject for Floor {
             return Some(RaycastHit::new(point, Vec3::new(0.0,1.0,0.0), t, self.material));
         }
     }
-    fn precompute(&self, camera_origin: Vec3) -> PreCompData {
-        PreCompData {
-            alpha: f64::MAX,
-            camera_direction: Vec3::new(0.0,1.0,0.0)
-        }
-    }
 }
 
 
@@ -610,9 +559,4 @@ impl SceneObject for Floor {
 trait SceneObject {
     //check intersection of self and a given ray
     fn raycast(&self, ray: Ray) -> Option<RaycastHit>;
-
-    //return dot threshold and direction to camera for optimization. WIP, currently unused.
-    fn precompute(&self, camera_origin: Vec3) -> PreCompData;
 }
-
-struct PreCompData { alpha: f64, camera_direction: Vec3 }

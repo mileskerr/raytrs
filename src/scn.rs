@@ -50,7 +50,6 @@ impl IpScene {
                 IpLight::point(pointlight) => {
                     lights.push(Light::Point(pointlight));
                 }
-                _=> {}
             }
         }
         let camera = Camera::new( 
