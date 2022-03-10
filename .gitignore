@@ -3,12 +3,11 @@
 /.gitignore
 
 /*.png
+/*.json
 /!demo*.png
 
 /*.obj
 /*.mtl
 /!teapot1.obj
-
-/src/default.scn
 
 /newell_teaset/
