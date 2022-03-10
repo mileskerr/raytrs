@@ -32,7 +32,7 @@ Usage: raytrs [OPTION]...
     -h, --help                      show this message
     -q, --quiet                     quiet mode, only print render time to stdout
     -s, --scene <filename.json>     set scene file. if no scene is provided, a
-                                    simple example scene will be rendered.
+                                    very simple example will be rendered.
     -o, --output <filename.png>     set output file. defaults to render.png
     -t, --threads <# of threads>    set number of threads used. should be >= the
                                     number of logical cores in your system,
@@ -40,7 +40,7 @@ Usage: raytrs [OPTION]...
     -r, --resolution <WIDTHxHEIGHT> set image dimensions. defaults to 256x256
 "#;
 const GET_HELP: &str =
-"\n -- see \'raytrs --help\' for more info";
+"\n see \'raytrs --help\' for more info";
 static mut QUIET: bool = false;
 
 //multiply all brightnesses by this. 30 is pretty good
@@ -55,7 +55,7 @@ fn main() {
             exit(0);
         }
         Err(err) => {
-            eprintln!("raytrs: {}", err);
+            eprintln!("{}[raytrs]{} {}", "\x1b[1m","\x1b[22m", err);
             exit(1);
         }
     }

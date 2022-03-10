@@ -9,13 +9,18 @@ use self::serde::Deserialize;
 use crate::*;
 
 
-pub fn read_json(contents: &str, path: &Path) -> Result<Scene, Box<dyn error::Error>> {
-    let scn: IpScene = serde_json::from_str(contents)?;
-    Ok(scn.to_scene(path))
+pub fn read_json(contents: &str, path: &Path) -> Result<Scene, String> {
+    let scn: IpScene = serde_json::from_str(contents).map_err(
+        move |error| { format!("error parsing json: {}", error) }
+    )?;
+    let scene = scn.to_scene(path).map_err(
+        move |error| { format!("error creating scene: {}", error) }
+    )?;
+    Ok(scene)
 }
 
 impl IpScene {
-    fn to_scene(self, path: &Path) -> Scene {
+    fn to_scene(self, path: &Path) -> Result<Scene, Box<dyn error::Error>> {
         let mut objects: Vec<Box<dyn SceneObject + Send + Sync>> = Vec::new();
         let mut lights = Vec::new();
         for object in self.objects {
@@ -36,7 +41,7 @@ impl IpScene {
                 IpObject::Obj(obj) => {
                     let obj_path = path.parent().unwrap().join(obj.filename);
                     let mut tris = read_obj(
-                        fs::read_to_string(obj_path).unwrap().as_str(),
+                        fs::read_to_string(obj_path)?.as_str(),
                         obj.offset,
                         obj.scale,
                         Material::new(obj.color,obj.reflective),
@@ -61,7 +66,7 @@ impl IpScene {
             self.background_color,
             1.0,
         );
-        Scene::new(objects,lights,camera,world)
+        Ok(Scene::new(objects,lights,camera,world))
     }
 }
 #[derive(Deserialize)]
