@@ -5,7 +5,7 @@ I'm still learning, so any tips or suggestions are appreciated.<br>
 
 Scenes are stored in the json format,
 and the examples in `example_scenes/` should give you enough context to make your own scenes.
-Loading custom obj files is supported, but textures are not implimented.
+Loading custom obj files is supported, but textures are not.
 
 `benchmark.sh` is a simple script that renders the example scenes
 (it must be run inside of the repo directory) and gives a score (in arbitrary units)
