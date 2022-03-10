@@ -38,6 +38,12 @@ Usage: raytrs [OPTION]...
                                     number of logical cores in your system,
                                     defaults to 32
     -r, --resolution <WIDTHxHEIGHT> set image dimensions. defaults to 256x256
+        --samples <# of samples>    if set to a nonzero value, will enable soft
+                                    shadows using the set amount of random samples.
+                                    warning: experimental, and basically useless.
+                                    acceptable results are not possible without
+                                    increasing render times by several orders of
+                                    magnitude.
 "#;
 const GET_HELP: &str =
 "\n- see \'raytrs --help\' for more info";
@@ -68,6 +74,7 @@ fn run() -> Result<(),Box<dyn error::Error>> {
     let mut width: usize = 256;
     let mut height: usize = 256;
     let mut threads: usize = 32;
+    let mut samples: usize = 0;
     
     { //argument parsing
         let opts = [
@@ -110,6 +117,12 @@ fn run() -> Result<(),Box<dyn error::Error>> {
                 if threads == 0 { return Err(format!("number of threads cannot be zero")); }
                 Ok(())
             })}),
+            ("samples", ClOpt::Value{ action: &mut ( |t: String| {
+                samples = t.parse().or(
+                    Err(format!("invalid number of samples"))
+                )?;
+                Ok(())
+            })}),
         ];
         let names = [ //translation table for short names
             ("h","help"),
@@ -137,7 +150,7 @@ fn run() -> Result<(),Box<dyn error::Error>> {
     };
 
     let t0 = Instant::now(); //render timer
-    let pixels = scene.render(width,height,threads)?; //render
+    let pixels = scene.render(width,height,threads,samples)?; //render
     println!("done rendering in {} seconds", t0.elapsed().as_secs_f32());
 
     { //write file
@@ -234,7 +247,8 @@ impl Scene {
     ) -> Scene {
         Scene { objects: objects, lights: lights, camera: camera, world: world }
     }
-    fn render(self, width: usize, height: usize, threads: usize) -> Result<Vec<Color>, String> {
+    fn render(self, width: usize, height: usize, threads: usize, samples: usize) ->
+    Result<Vec<Color>, String> {
 
         //higher is much better for large scenes
         const CHUNK_SIZE: usize = 256;
@@ -329,9 +343,9 @@ impl Scene {
                                 if hit.depth < depths[j] {
                                     depths[j] = hit.depth;
                                     if hit.material.reflective {
-                                        pixels[j] = Some(shade_reflective(ray,hit,&scene,3));
+                                        pixels[j] = Some(shade_reflective(ray,hit,&scene,3,samples));
                                     } else {
-                                        pixels[j] = Some(shade_diffuse(hit,&scene.lights,&scene.objects));
+                                        pixels[j] = Some(shade_diffuse(hit,&scene.lights,&scene.objects,samples));
                                     }
                                 }
                             }
@@ -367,7 +381,8 @@ impl Scene {
         Ok(output)
     }
 }
-fn shade_diffuse(hit: RaycastHit, lights: &Vec<Light>, objects: &Vec<Box<dyn SceneObject + Send + Sync>> ) -> Color {
+fn shade_diffuse
+(hit: RaycastHit, lights: &Vec<Light>, objects: &Vec<Box<dyn SceneObject + Send + Sync>>, samples: usize) -> Color {
     let mut lightness = 0.0;
     for light in lights {
         match light {
@@ -381,10 +396,23 @@ fn shade_diffuse(hit: RaycastHit, lights: &Vec<Light>, objects: &Vec<Box<dyn Sce
                 let mut new_light = ((l0 * l0) * EXPOSURE) / (light_distance * light_distance);
                 //shadows
                 for i in 0..objects.len() {
-                    let ray = Ray::new( hit.point, point_light.origin);
-                    let hit1 = objects[i].raycast( ray );
-                    if hit1.is_some() {
-                        new_light = 0.0;
+                    if samples == 0 {
+                        let ray = Ray::new( hit.point, point_light.origin ) ;
+                        let hit1 = objects[i].raycast( ray );
+                        if hit1.is_some() {
+                            new_light = 0.0;
+                        }
+                    }
+                    else {
+                        for _ in 0..samples {
+                            let ray = Ray::new( hit.point, point_light.origin + (Vec3::random() * point_light.size)) ;
+                            let hit1 = objects[i].raycast( ray );
+                            if hit1.is_some() {
+                                if hit1.unwrap().depth > 0.01 { //to prevent casting shadow on self
+                                    new_light -= 1.0/(samples as f64);
+                                }
+                            }
+                        }
                     }
                 }
                 lightness = lightness + new_light;
@@ -395,7 +423,8 @@ fn shade_diffuse(hit: RaycastHit, lights: &Vec<Light>, objects: &Vec<Box<dyn Sce
     let pixel = hit.material.color * lightness;
     return pixel;
 }
-fn shade_reflective(ray: Ray, hit: RaycastHit, scene: &Scene, recurs_lim: u8) -> Color {
+fn shade_reflective
+(ray: Ray, hit: RaycastHit, scene: &Scene, recurs_lim: u8, samples: usize) -> Color {
     let mut pixel = scene.world.color;
     let mut depth = f64::MAX;
 
@@ -407,9 +436,9 @@ fn shade_reflective(ray: Ray, hit: RaycastHit, scene: &Scene, recurs_lim: u8) ->
             let refl_hit = refl_hit.unwrap();
             depth = refl_hit.depth; 
             if recurs_lim > 0 && refl_hit.material.reflective {
-                pixel = shade_reflective( new_ray, refl_hit, &scene, recurs_lim - 1 );
+                pixel = shade_reflective( new_ray, refl_hit, &scene, recurs_lim - 1, samples);
             } else {
-                pixel = shade_diffuse( refl_hit, &scene.lights, &scene.objects );
+                pixel = shade_diffuse( refl_hit, &scene.lights, &scene.objects, samples);
             }
         }
     }

@@ -188,7 +188,8 @@ pub const DEFAULT_JSON: &str = r#"
         {
             "point": {
                 "origin": { "x": 1, "y": 7, "z": -3 },
-                "strength": 1.5
+                "strength": 1.5,
+                "size": 2
             }
         }
     ],

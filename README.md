@@ -17,10 +17,10 @@ The current version, on my computer, tends to score around 93
 		-h, --help                      show this message
 		-q, --quiet                     quiet mode, only print render time to stdout
 		-s, --scene <filename.json>     set scene file. if no scene is provided, a
-										very simple example will be rendered.
+                                    	very simple example will be rendered.
 		-o, --output <filename.png>     set output file. defaults to render.png
 		-t, --threads <# of threads>    set number of threads used. should be >= the
-										number of logical cores in your system,
+                                        number of logical cores in your system,
 										defaults to 32
 		-r, --resolution <WIDTHxHEIGHT> set image dimensions. defaults to 256x256
 

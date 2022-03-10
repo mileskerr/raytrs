@@ -1,5 +1,6 @@
 extern crate serde;
 use self::serde::Deserialize;
+use std::time::{Duration, SystemTime};
 use std::ops::Mul;
 use std::ops::Add;
 use std::ops::Sub;
@@ -18,6 +19,15 @@ pub struct Vec3 {
 impl Vec3 {
     pub fn new(x: f64, y: f64, z: f64) -> Vec3
     { Vec3{x: x, y: y, z: z} }
+    pub fn random() -> Vec3 {
+        //this really isn't all that random at all. good enough
+        let seed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+        let seed = format!("{}", seed * seed);
+        let x: f64 = seed[seed.len()-3..seed.len()].parse().unwrap();
+        let y: f64 = seed[seed.len()-5..seed.len()-2].parse().unwrap();
+        let z: f64 = seed[seed.len()-7..seed.len()-4].parse().unwrap();
+        Vec3::new(x,y,z).unit()
+    }
     pub fn dot(self, other: Vec3) -> f64 {
         self.x * other.x +
         self.y * other.y +
@@ -208,10 +218,11 @@ impl World {
 pub struct PointLight {
     pub origin: Vec3,
     pub strength: f64,
+    pub size: f64,
 }
 impl PointLight {
-    pub fn new(origin: Vec3, strength:f64) -> PointLight
-    { PointLight { origin: origin, strength: strength } }
+    pub fn new(origin: Vec3, strength:f64, size:f64) -> PointLight
+    { PointLight { origin: origin, strength: strength, size: size } }
 }
 
 
