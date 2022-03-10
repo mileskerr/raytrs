@@ -8,7 +8,6 @@ use std::fs::File;
 use std::path::Path;
 use std::time::Instant;
 use std::io::BufWriter;
-use std::fmt::Display;
 use std::process::exit;
 use std::error;
 use std::collections::HashMap;
@@ -28,19 +27,25 @@ mod space;
 pub use space::*;
 
 const HELP: &str = r#"
-usage:
-[-h]                show this message
-[-q]                quiet mode, only write render time to stdout
-[-s <filename>]     set scene file (.json)
-[-o <filename>]     set output file (.png, defaults to render.png)
-[-d <WIDTHxHEIGHT>] set image dimensions (defaults to 256x256)
-[-t <# of threads>] set number of threads used (should be >= number of logical cores in your system, defaults to 32)
+Usage: raytrs [OPTION]...
+
+    -h, --help                      show this message
+    -q, --quiet                     quiet mode, only print render time to stdout
+    -s, --scene <filename.json>     set scene file. if no scene is provided, a
+                                    simple example scene will be rendered.
+    -o, --output <filename.png>     set output file. defaults to render.png
+    -t, --threads <# of threads>    set number of threads used. should be >= the
+                                    number of logical cores in your system,
+                                    defaults to 32
+    -r, --resolution <WIDTHxHEIGHT> set image dimensions. defaults to 256x256
 "#;
+const GET_HELP: &str =
+"\n -- see \'raytrs --help\' for more info";
+static mut QUIET: bool = false;
 
-
+//multiply all brightnesses by this. 30 is pretty good
 const EXPOSURE: f64 = 30.0;
 
-static mut QUIET: bool = false;
 
 
 fn main() {
@@ -50,8 +55,8 @@ fn main() {
             exit(0);
         }
         Err(err) => {
-            eprintln!("error: {}", err);
-            exit(2);
+            eprintln!("raytrs: {}", err);
+            exit(1);
         }
     }
 }
@@ -63,52 +68,58 @@ fn run() -> Result<(),Box<dyn error::Error>> {
     let mut width: usize = 256;
     let mut height: usize = 256;
     let mut threads: usize = 32;
-
-    { //arguments
+    
+    { //argument parsing
         let opts = [
-            ("h", ClOpt::Flag{ action: &mut ( || {
+            ("help", ClOpt::Flag{ action: &mut ( || {
                 println!("{}",HELP);
                 exit(0);
             })}),
-    
-            ("q", ClOpt::Flag{ action: &mut ( || {
+            ("quiet", ClOpt::Flag{ action: &mut ( || {
                 //trust me bro, im only gonna assign this variable once at the
                 //very beginning you have nothing to worry about compiler
                 unsafe { QUIET = true; };
             })}),
-            ("o", ClOpt::Str{ action: &mut ( |filename: String| {
+            ("output", ClOpt::Value{ action: &mut ( |filename: String| {
                 output_file = filename;
                 Ok(())
             })}),
-            ("s", ClOpt::Str{ action: &mut ( |filename: String| {
+            ("scene", ClOpt::Value{ action: &mut ( |filename: String| {
                 scene_file = Some(filename);
                 Ok(())
             })}),
-            ("d", ClOpt::Str{ action: &mut ( |dimensions: String| {
+            ("resolution", ClOpt::Value{ action: &mut ( |dimensions: String| {
+                let invalid_res_error = &format!("invalid resolution {}", GET_HELP);
                 let mut spl = dimensions.split('x');
-                width = spl.next().ok_or(
-                        ArgsError("dimensions should be in format: <WIDTHxHEIGHT>".to_string())
-                    )?.parse().or(
-                        Err(ArgsError("invalid width".to_string()))
-                    )?;
-                height = spl.next().ok_or(
-                        ArgsError("dimensions should be in format: <WIDTHxHEIGHT>".to_string())
-                    )?.parse().or(
-                        Err(ArgsError("invalid height".to_string()))
-                    )?;
-                if width == 0 { return Err(ArgsError("width cannot be zero".to_string())) };
-                if height == 0 { return Err(ArgsError("height cannot be zero".to_string())) };
+
+                width = spl.next()
+                    .ok_or(invalid_res_error)?
+                    .parse().or(Err(invalid_res_error))?;
+                height = spl.next()
+                    .ok_or(invalid_res_error)?
+                    .parse().or(Err(invalid_res_error))?;
+
+                if width == 0 { return Err(format!("width cannot be zero")) };
+                if height == 0 { return Err(format!("height cannot be zero")) };
                 Ok(())
             })}),
-            ("t", ClOpt::Str{ action: &mut ( |t: String| {
+            ("threads", ClOpt::Value{ action: &mut ( |t: String| {
                 threads = t.parse().or(
-                    Err(ArgsError("invalid number of threads".to_string()))
+                    Err(format!("invalid number of threads"))
                 )?;
-                if threads == 0 { return Err(ArgsError("number of threads cannot be zero".to_string())); }
+                if threads == 0 { return Err(format!("number of threads cannot be zero")); }
                 Ok(())
             })}),
         ];
-        parse_args(&mut HashMap::from(opts))?;
+        let names = [ //translation table for short names
+            ("h","help"),
+            ("q","quiet"),
+            ("o","output"),
+            ("s","scene"),
+            ("r","resolution"),
+            ("t","threads"),
+        ];
+        parse_args(&mut HashMap::from(opts),HashMap::from(names))?;
     }
   
     print_loud(format!("loading scene...\n"));
@@ -145,41 +156,51 @@ fn run() -> Result<(),Box<dyn error::Error>> {
             data.push(pixels[i].b);
         }
         writer.write_image_data(&data)?;
-        print_loud(format!("output written to \"{}\"\n", &output_file));
+        print_loud(format!("output written to \'{}\'\n", &output_file));
     }
     Ok(())
 }
 
+fn parse_args<'a>
+(options: &mut HashMap<&'a str, ClOpt>,names: HashMap<&str,&'a str>) -> Result<(),String> {
+    let mut do_option_action = | name: String, args: &mut std::env::Args | {
+        match options.get_mut(&name[..]) {
+            Some(ClOpt::Flag{action}) => { action(); }
+            Some(ClOpt::Value{action}) => {
+                //since next argument is inerpreted as the value of option, skip it.
+                let arg_result = args.next().ok_or(
+                    format!("must provide a value for \'{}\' {}",name, GET_HELP)
+                )?;
+                action(arg_result)?;
+            }
+            _=> {
+                return Err(format!("invalid option \'{}\' {}",name, GET_HELP));
+            }
+        }
+        Ok(())
+    };
 
-fn parse_args<'a>(options: &mut HashMap<&str, ClOpt> ) -> Result<(),ArgsError> {
-    //checks for arguments and executes the closure provided for each one,
-    //with read data passed into the closure depending on the command line option type
+
     let mut args = env::args();
     args.next(); //skip 0th argument
+
+    //options are indexed by their long name, so first check if option provided is short by checking
+    //number of dashes proceeding it, and if it is, loop through all characters in the argument
+    //(for option chaining eg. ls -la), and translate each into the long name before setting them.
     while let Some(arg) = args.next() {
-        if arg.find('-') == Some(0) {
+        if arg.find("--") == Some(0) {
+            do_option_action(arg[2..].to_owned(), &mut args)?;
+        } else if arg.find('-') == Some(0) {
             for i in 1..arg.len() {
-                let name= &arg[i..i+1];
-                match options.get_mut(name) {
-                    Some(ClOpt::Flag{action}) => {
-                        action();
-                    }
-                    Some(ClOpt::Str{action}) => {
-                        //since next argument is inerpreted as the value of current argument, skip it
-                        let arg_result = args.next().ok_or(
-                            ArgsError("no value specified for -".to_string() + 
-                            name)
-                        )?;
-                        action(arg_result)?;
-                    }
-                    _=> {
-                        return Err(ArgsError("invalid arguments supplied. see -h for usage".to_string()));
-                    }
-                }
+                let short_name= &arg[i..i+1];
+                let name = names.get(short_name).ok_or(
+                    format!("invalid option \'{}\' {}",short_name, GET_HELP)
+                )?;
+                do_option_action(name.to_string(), &mut args)?;
             }
         }
         else {
-            return Err(ArgsError("invalid arguments supplied. see -h for usage".to_string()));
+            return Err(format!("invalid arguments {}", GET_HELP));
         }
     }
     return Ok(());
@@ -190,16 +211,7 @@ enum ClOpt<'a> { //types of command line options
     Flag{ action: &'a mut dyn FnMut() }, 
     
     //a required next argument is passed into the closure
-    Str{ action: &'a mut dyn FnMut(String) -> Result<(),ArgsError> }, 
-}
-
-#[derive(Debug)]
-struct ArgsError(String);
-impl std::error::Error for ArgsError {}
-impl Display for ArgsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+    Value{ action: &'a mut dyn FnMut(String) -> Result<(),String> }, 
 }
 
 fn print_loud(content: String) {
@@ -535,8 +547,6 @@ impl SceneObject for Floor {
         }
     }
 }
-
-
 
 trait SceneObject {
     //check intersection of self and a given ray
