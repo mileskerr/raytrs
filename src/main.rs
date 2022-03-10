@@ -40,7 +40,7 @@ Usage: raytrs [OPTION]...
     -r, --resolution <WIDTHxHEIGHT> set image dimensions. defaults to 256x256
 "#;
 const GET_HELP: &str =
-"\n see \'raytrs --help\' for more info";
+"\n- see \'raytrs --help\' for more info";
 static mut QUIET: bool = false;
 
 //multiply all brightnesses by this. 30 is pretty good
@@ -55,7 +55,7 @@ fn main() {
             exit(0);
         }
         Err(err) => {
-            eprintln!("{}[raytrs]{} {}", "\x1b[1m","\x1b[22m", err);
+            eprintln!("[raytrs] {}", err);
             exit(1);
         }
     }
